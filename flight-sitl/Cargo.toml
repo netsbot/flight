@@ -1,0 +1,8 @@
+[package]
+name = "flight-sitl"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+flight-core = {path = "../flight-core"}
+nalgebra = {workspace = true}
