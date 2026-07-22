@@ -74,12 +74,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut wtr = csv::Writer::from_writer(out_file);
     wtr.write_record(&["sim_time", "est_roll", "est_pitch", "est_yaw"])?;
 
+    let mut prev_time = None;
     for data in dataset {
+        let dt = match prev_time {
+            Some(prev) => (data.sim_time - prev) as f32,
+            None => 0.01,
+        };
+        prev_time = Some(data.sim_time);
+
         fusion.update(Sensors {
             accel: data.accel,
             gyro: data.gyro,
             magnetometer: None,
             alt: 0.0,
+            dt,
         });
 
         let q = fusion.quaternion();

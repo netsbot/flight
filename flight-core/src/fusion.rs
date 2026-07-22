@@ -27,10 +27,26 @@ pub struct Ahrs {
     magnetometer_ignored: bool,
     magnetometer_recovery_trigger: i32,
     magnetometer_recovery_threshold: i32,
+
+    // Bias correction fields
+    bias_filter_coeff: Option<f32>,
+    bias_timeout: Option<u32>,
+    bias_timer: u32,
+    bias_offset: Vector3<f32>,
 }
 
 impl Ahrs {
     pub fn new(config: AhrsConfig) -> Self {
+        let (bias_filter_coeff, bias_timeout) = config
+            .bias_config
+            .as_ref()
+            .map(|bias_cfg| {
+                let coeff = 2.0 * PI * CUTOFF_FREQ * (1.0 / bias_cfg.sample_rate);
+                let timeout = (bias_cfg.stationary_period * bias_cfg.sample_rate) as u32;
+                (coeff, timeout)
+            })
+            .unzip();
+
         Self {
             quaternion: UnitQuaternion::identity(),
             accel: Vector3::zeros(),
@@ -47,6 +63,10 @@ impl Ahrs {
             magnetometer_ignored: false,
             magnetometer_recovery_threshold: config.rejection_timeout(),
             magnetometer_recovery_trigger: 0,
+            bias_filter_coeff,
+            bias_timeout,
+            bias_timer: 0,
+            bias_offset: Vector3::zeros(),
             config,
         }
     }
@@ -64,14 +84,38 @@ impl Ahrs {
         self.accel_recovery_trigger = 0;
         self.magnetometer_ignored = false;
         self.magnetometer_recovery_trigger = 0;
+        // Reset bias timer but keep offset
+        self.bias_timer = 0;
     }
 
-    pub fn update(&mut self, sensors: Sensors) {
+    pub fn update(&mut self, sensors: Sensors) -> UnitQuaternion<f32> {
+        self.config.set_sample_period(sensors.dt);
+
+        // Apply bias correction if enabled
+        let corrected_gyro = if let Some(bias_cfg) = &self.config.bias_config {
+            let gyro_corrected = sensors.gyro - self.bias_offset;
+
+            if gyro_corrected.x.abs() > bias_cfg.stationary_threshold
+                || gyro_corrected.y.abs() > bias_cfg.stationary_threshold
+                || gyro_corrected.z.abs() > bias_cfg.stationary_threshold
+            {
+                self.bias_timer = 0;
+            } else if self.bias_timer < self.bias_timeout.unwrap_or(0) {
+                self.bias_timer += 1;
+            } else if let Some(coeff) = self.bias_filter_coeff {
+                self.bias_offset = self.bias_offset + gyro_corrected.scale(coeff);
+            }
+
+            gyro_corrected
+        } else {
+            sensors.gyro
+        };
+
         self.accel = sensors.accel;
 
-        if sensors.gyro.x.abs() > self.config.gyro_range()
-            || sensors.gyro.y.abs() > self.config.gyro_range()
-            || sensors.gyro.z.abs() > self.config.gyro_range()
+        if corrected_gyro.x.abs() > self.config.gyro_range()
+            || corrected_gyro.y.abs() > self.config.gyro_range()
+            || corrected_gyro.z.abs() > self.config.gyro_range()
         {
             let quaternion = self.quaternion;
             self.restart();
@@ -158,7 +202,7 @@ impl Ahrs {
             }
         }
 
-        let half_gyro = sensors.gyro.scale(0.5f32.to_radians());
+        let half_gyro = corrected_gyro.scale(0.5f32.to_radians());
         let adjusted_half_gyro =
             half_gyro + (half_accel_feedback + half_magnetometer_feedback).scale(self.ramped_gain);
 
@@ -174,6 +218,8 @@ impl Ahrs {
         if sensors.magnetometer.is_none() && self.startup {
             self.set_heading(0.0);
         }
+
+        self.quaternion
     }
 
     fn set_heading(&mut self, heading: f32) {
@@ -199,6 +245,18 @@ impl Ahrs {
         self.quaternion
     }
 
+    pub fn euler_angles(&self) -> (f32, f32, f32) {
+        let q = self.quaternion;
+        let roll = (q.j * q.k + q.w * q.i)
+            .atan2(q.w * q.w + q.k * q.k - 0.5)
+            .to_degrees();
+        let pitch = (2.0 * (q.w * q.j - q.i * q.k)).asin().to_degrees();
+        let yaw = (q.i * q.j + q.w * q.k)
+            .atan2(q.w * q.w + q.i * q.i - 0.5)
+            .to_degrees();
+        (roll, pitch, yaw)
+    }
+
     #[inline]
     fn feedback(sensor: Vector3<f32>, reference: Vector3<f32>) -> Vector3<f32> {
         let cross = sensor.cross(&reference);
@@ -214,6 +272,12 @@ pub enum Convention {
     Nwu,
     Enu,
     Ned,
+}
+
+impl Default for Convention {
+    fn default() -> Self {
+        Self::Nwu
+    }
 }
 
 impl Convention {
@@ -254,25 +318,27 @@ impl Convention {
 }
 
 pub struct AhrsConfig {
-    sample_rate: f32,
+    sample_period: f32,
     convention: Convention,
     gain: f32,
     gyro_range: f32,
     accel_rejection: f32,
     magnetic_rejection: f32,
     rejection_timeout_secs: f32,
+    bias_config: Option<BiasConfig>,
 }
 
 impl Default for AhrsConfig {
     fn default() -> Self {
         Self {
-            sample_rate: 100.0,
-            convention: Convention::Nwu,
+            sample_period: 0.01,
+            convention: Convention::default(),
             gain: 0.5,
             gyro_range: 0.0,
             accel_rejection: 10.0,
             magnetic_rejection: 10.0,
             rejection_timeout_secs: 0.0,
+            bias_config: None,
         }
     }
 }
@@ -284,9 +350,13 @@ impl AhrsConfig {
 
     pub fn with_sample_rate(self, sample_rate: f32) -> Self {
         Self {
-            sample_rate,
+            sample_period: 1.0 / sample_rate,
             ..self
         }
+    }
+
+    pub fn set_sample_period(&mut self, sample_period: f32) {
+        self.sample_period = sample_period
     }
 
     pub fn with_convention(self, convention: Convention) -> Self {
@@ -322,9 +392,16 @@ impl AhrsConfig {
         }
     }
 
+    pub fn with_bias_config(self, bias_config: Option<BiasConfig>) -> Self {
+        Self {
+            bias_config,
+            ..self
+        }
+    }
+
     #[inline]
     pub fn sample_period(&self) -> f32 {
-        1.0 / self.sample_rate
+        self.sample_period
     }
 
     #[inline]
@@ -357,7 +434,11 @@ impl AhrsConfig {
 
     #[inline]
     pub fn rejection_timeout(&self) -> i32 {
-        (self.sample_rate * self.rejection_timeout_secs) as i32
+        if self.sample_period <= 0.0 {
+            0
+        } else {
+            (self.rejection_timeout_secs / self.sample_period) as i32
+        }
     }
 
     #[inline]
@@ -371,50 +452,10 @@ impl AhrsConfig {
     }
 }
 
-pub struct Bias {
-    config: BiasConfig,
-    filter_coeff: f32,
-    timeout: u32,
-    timer: u32,
-    offset: Vector3<f32>,
-}
-
-impl Bias {
-    pub fn new(config: BiasConfig) -> Self {
-        Self {
-            filter_coeff: 2.0 * PI * CUTOFF_FREQ * (1.0 / config.sample_rate),
-            timeout: (config.stationary_period * config.sample_rate) as u32,
-            timer: 0,
-            offset: Vector3::zeros(),
-            config,
-        }
-    }
-
-    pub fn update(&mut self, gyro: Vector3<f32>) -> Vector3<f32> {
-        let gyro = gyro - self.offset;
-
-        if gyro.x.abs() > self.config.stationary_threshold
-            || gyro.y.abs() > self.config.stationary_threshold
-            || gyro.z.abs() > self.config.stationary_threshold
-        {
-            self.timer = 0;
-            return gyro;
-        }
-
-        if self.timer < self.timeout {
-            self.timer += 1;
-            return gyro;
-        }
-
-        self.offset = self.offset + gyro.scale(self.filter_coeff);
-        gyro
-    }
-}
-
 pub struct BiasConfig {
-    pub sample_rate: f32,          // Hz
-    pub stationary_threshold: f32, // degrees per second
-    pub stationary_period: f32,    // seconds
+    pub sample_rate: f32,
+    pub stationary_threshold: f32,
+    pub stationary_period: f32,
 }
 
 impl Default for BiasConfig {
@@ -447,6 +488,7 @@ mod test {
             gyro: Vector3::zeros(),
             magnetometer: None,
             alt: 0.0,
+            dt: 0.0,
         };
 
         fusion.update(sensors);

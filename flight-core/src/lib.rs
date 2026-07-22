@@ -16,6 +16,7 @@ pub struct Sensors {
     pub gyro: Vector3<f32>,
     pub magnetometer: Option<Vector3<f32>>,
     pub alt: f32,
+    pub dt: f32, // in seconds
 }
 
 pub struct FlightComputer {}
