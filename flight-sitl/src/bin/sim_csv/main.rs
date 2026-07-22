@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("First frame: {:?}", first);
     }
 
-    let config = fusion::Config::default()
+    let config = fusion::AhrsConfig::default()
         .with_sample_rate(100.0)
         .with_convention(Convention::Nwu)
         .with_gain(0.5)
@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_accel_rejection(10.0)
         .with_magnetic_rejection(10.0)
         .with_rejection_timeout(5.0);
-    let mut fusion = fusion::Fusion::new(config);
+    let mut fusion = fusion::Ahrs::new(config);
 
     // Prepare CSV writer to export per-frame estimates alongside ground-truth.
     // Writes: sim_time, gt_roll, gt_pitch, gt_yaw, est_roll, est_pitch, est_yaw
