@@ -6,8 +6,9 @@
       <sourceFolder url="file://$MODULE_DIR$/flight-sitl/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/flight-core/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/webots/.venv" />
     </content>
-    <orderEntry type="inheritedJdk" />
+    <orderEntry type="jdk" jdkName="Python 3.14 (flight)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>
