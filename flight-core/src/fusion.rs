@@ -1,11 +1,13 @@
 use crate::Sensors;
+use core::f32::consts::PI;
 use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 
 const STARTUP_GAIN: f32 = 10.0;
 const STARTUP_PERIOD: f32 = 3.0;
+const CUTOFF_FREQ: f32 = 0.02;
 
-struct Fusion {
-    config: Config,
+pub struct Ahrs {
+    config: AhrsConfig,
 
     quaternion: UnitQuaternion<f32>,
     accel: Vector3<f32>,
@@ -27,8 +29,8 @@ struct Fusion {
     magnetometer_recovery_threshold: i32,
 }
 
-impl Fusion {
-    pub fn new(config: Config) -> Self {
+impl Ahrs {
+    pub fn new(config: AhrsConfig) -> Self {
         Self {
             quaternion: UnitQuaternion::identity(),
             accel: Vector3::zeros(),
@@ -158,7 +160,7 @@ impl Fusion {
 
         let half_gyro = sensors.gyro.scale(0.5f32.to_radians());
         let adjusted_half_gyro =
-            half_gyro + (half_accel_feedback + half_magnetometer_feedback.scale(self.ramped_gain));
+            half_gyro + (half_accel_feedback + half_magnetometer_feedback).scale(self.ramped_gain);
 
         self.quaternion = UnitQuaternion::new_normalize(
             self.quaternion.into_inner()
@@ -251,7 +253,7 @@ impl Convention {
     }
 }
 
-pub struct Config {
+pub struct AhrsConfig {
     sample_rate: f32,
     convention: Convention,
     gain: f32,
@@ -261,58 +263,63 @@ pub struct Config {
     rejection_timeout_secs: f32,
 }
 
-impl Default for Config {
+impl Default for AhrsConfig {
     fn default() -> Self {
         Self {
             sample_rate: 100.0,
             convention: Convention::Nwu,
             gain: 0.5,
             gyro_range: 0.0,
-            accel_rejection: 90.0,
-            magnetic_rejection: 90.0,
+            accel_rejection: 10.0,
+            magnetic_rejection: 10.0,
             rejection_timeout_secs: 0.0,
         }
     }
 }
 
-impl Config {
+impl AhrsConfig {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn with_sample_rate(mut self, rate: f32) -> Self {
-        self.sample_rate = rate;
-        self
+    pub fn with_sample_rate(self, sample_rate: f32) -> Self {
+        Self {
+            sample_rate,
+            ..self
+        }
     }
 
-    pub fn with_convention(mut self, convention: Convention) -> Self {
-        self.convention = convention;
-        self
+    pub fn with_convention(self, convention: Convention) -> Self {
+        Self { convention, ..self }
     }
 
-    pub fn with_gain(mut self, gain: f32) -> Self {
-        self.gain = gain;
-        self
+    pub fn with_gain(self, gain: f32) -> Self {
+        Self { gain, ..self }
     }
 
-    pub fn with_gyro_range(mut self, range: f32) -> Self {
-        self.gyro_range = range;
-        self
+    pub fn with_gyro_range(self, gyro_range: f32) -> Self {
+        Self { gyro_range, ..self }
     }
 
-    pub fn with_accel_rejection(mut self, rejection: f32) -> Self {
-        self.accel_rejection = rejection;
-        self
+    pub fn with_accel_rejection(self, accel_rejection: f32) -> Self {
+        Self {
+            accel_rejection,
+            ..self
+        }
     }
 
-    pub fn with_magnetic_rejection(mut self, rejection: f32) -> Self {
-        self.magnetic_rejection = rejection;
-        self
+    pub fn with_magnetic_rejection(self, magnetic_rejection: f32) -> Self {
+        Self {
+            magnetic_rejection,
+            ..self
+        }
     }
 
-    pub fn with_rejection_timeout(mut self, seconds: f32) -> Self {
-        self.rejection_timeout_secs = seconds;
-        self
+    pub fn with_rejection_timeout(self, rejection_timeout_secs: f32) -> Self {
+        Self {
+            rejection_timeout_secs,
+            ..self
+        }
     }
 
     #[inline]
@@ -364,21 +371,82 @@ impl Config {
     }
 }
 
+pub struct Bias {
+    config: BiasConfig,
+    filter_coeff: f32,
+    timeout: u32,
+    timer: u32,
+    offset: Vector3<f32>,
+}
+
+impl Bias {
+    pub fn new(config: BiasConfig) -> Self {
+        Self {
+            filter_coeff: 2.0 * PI * CUTOFF_FREQ * (1.0 / config.sample_rate),
+            timeout: (config.stationary_period * config.sample_rate) as u32,
+            timer: 0,
+            offset: Vector3::zeros(),
+            config,
+        }
+    }
+
+    pub fn update(&mut self, gyro: Vector3<f32>) -> Vector3<f32> {
+        let gyro = gyro - self.offset;
+
+        if gyro.x.abs() > self.config.stationary_threshold
+            || gyro.y.abs() > self.config.stationary_threshold
+            || gyro.z.abs() > self.config.stationary_threshold
+        {
+            self.timer = 0;
+            return gyro;
+        }
+
+        if self.timer < self.timeout {
+            self.timer += 1;
+            return gyro;
+        }
+
+        self.offset = self.offset + gyro.scale(self.filter_coeff);
+        gyro
+    }
+}
+
+pub struct BiasConfig {
+    pub sample_rate: f32,          // Hz
+    pub stationary_threshold: f32, // degrees per second
+    pub stationary_period: f32,    // seconds
+}
+
+impl Default for BiasConfig {
+    fn default() -> Self {
+        Self {
+            sample_rate: 100.0,
+            stationary_threshold: 3.0,
+            stationary_period: 3.0,
+        }
+    }
+}
+
+impl BiasConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
     fn initialization() {
-        let config = Config::default().with_sample_rate(100.0);
-        let mut fusion = Fusion::new(config);
+        let config = AhrsConfig::default().with_sample_rate(100.0);
+        let mut fusion = Ahrs::new(config);
 
         let sensors = Sensors {
             accel: Vector3::zeros(),
             gyro: Vector3::zeros(),
             magnetometer: None,
             alt: 0.0,
-            dt: 0.0,
         };
 
         fusion.update(sensors);

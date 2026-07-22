@@ -1,6 +1,6 @@
 #![no_std]
 
-mod fusion;
+pub mod fusion;
 
 use nalgebra::Vector3;
 
@@ -16,7 +16,6 @@ pub struct Sensors {
     pub gyro: Vector3<f32>,
     pub magnetometer: Option<Vector3<f32>>,
     pub alt: f32,
-    pub dt: f32,
 }
 
 pub struct FlightComputer {}
