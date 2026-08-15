@@ -1,0 +1,6 @@
+#INCLUDEFILE option("wokwi")
+[wokwi]
+version = 1
+gdbServerPort = 3333
+elf = "target/xtensa-esp32s3-none-elf/debug/my-esp-project"
+firmware = "target/xtensa-esp32s3-none-elf/debug/my-esp-project"

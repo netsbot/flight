@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
         prev_time = Some(data.sim_time);
 
-        fusion.update(Sensors {
+        fusion.update(&Sensors {
             accel: data.accel,
             gyro: data.gyro,
             magnetometer: None,

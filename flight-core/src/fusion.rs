@@ -1,6 +1,7 @@
 use crate::Sensors;
 use core::f32::consts::PI;
 use nalgebra::{Quaternion, UnitQuaternion, Vector3};
+use num_traits::Float;
 
 const STARTUP_GAIN: f32 = 10.0;
 const STARTUP_PERIOD: f32 = 3.0;
@@ -71,7 +72,7 @@ impl Ahrs {
         }
     }
 
-    fn restart(&mut self) {
+    pub fn restart(&mut self) {
         self.quaternion = UnitQuaternion::identity();
         self.accel = Vector3::zeros();
         self.half_gravity = Vector3::zeros();
@@ -88,16 +89,17 @@ impl Ahrs {
         self.bias_timer = 0;
     }
 
-    pub fn update(&mut self, sensors: Sensors) -> UnitQuaternion<f32> {
+    pub fn update(&mut self, sensors: &Sensors) {
         self.config.set_sample_period(sensors.dt);
 
-        // Apply bias correction if enabled
+        // Apply bias correction if enabled (gyro in deg/s)
         let corrected_gyro = if let Some(bias_cfg) = &self.config.bias_config {
             let gyro_corrected = sensors.gyro - self.bias_offset;
 
-            if gyro_corrected.x.abs() > bias_cfg.stationary_threshold
-                || gyro_corrected.y.abs() > bias_cfg.stationary_threshold
-                || gyro_corrected.z.abs() > bias_cfg.stationary_threshold
+            let thresh = bias_cfg.stationary_threshold;
+            if gyro_corrected.x.abs() > thresh
+                || gyro_corrected.y.abs() > thresh
+                || gyro_corrected.z.abs() > thresh
             {
                 self.bias_timer = 0;
             } else if self.bias_timer < self.bias_timeout.unwrap_or(0) {
@@ -202,7 +204,8 @@ impl Ahrs {
             }
         }
 
-        let half_gyro = corrected_gyro.scale(0.5f32.to_radians());
+        let gyro_rad = corrected_gyro.map(|v| v.to_radians());
+        let half_gyro = gyro_rad.scale(0.5f32);
         let adjusted_half_gyro =
             half_gyro + (half_accel_feedback + half_magnetometer_feedback).scale(self.ramped_gain);
 
@@ -218,17 +221,15 @@ impl Ahrs {
         if sensors.magnetometer.is_none() && self.startup {
             self.set_heading(0.0);
         }
-
-        self.quaternion
     }
 
-    fn set_heading(&mut self, heading: f32) {
+    pub fn set_heading(&mut self, heading: f32) {
         let yaw = (self.quaternion.w * self.quaternion.k + self.quaternion.i * self.quaternion.j)
             .atan2(
                 0.5 - self.quaternion.j * self.quaternion.j - self.quaternion.k * self.quaternion.k,
             );
 
-        let half_yaw_minus_heading = 0.5 * (yaw - heading.to_radians());
+        let half_yaw_minus_heading: f32 = 0.5 * (yaw - heading.to_radians());
 
         let rotation = UnitQuaternion::new_unchecked(Quaternion::new(
             half_yaw_minus_heading.cos(),
@@ -245,7 +246,7 @@ impl Ahrs {
         self.quaternion
     }
 
-    pub fn euler_angles(&self) -> (f32, f32, f32) {
+    pub fn euler_angles(&self) -> Vector3<f32> {
         let q = self.quaternion;
         let roll = (q.j * q.k + q.w * q.i)
             .atan2(q.w * q.w + q.k * q.k - 0.5)
@@ -254,7 +255,23 @@ impl Ahrs {
         let yaw = (q.i * q.j + q.w * q.k)
             .atan2(q.w * q.w + q.i * q.i - 0.5)
             .to_degrees();
-        (roll, pitch, yaw)
+        Vector3::new(roll, pitch, yaw)
+    }
+
+    pub fn is_startup(&self) -> bool {
+        self.startup
+    }
+
+    pub fn is_angular_rate_recovery(&self) -> bool {
+        self.angular_rate_recovery
+    }
+
+    pub fn is_accel_ignored(&self) -> bool {
+        self.accel_ignored
+    }
+
+    pub fn is_magnetometer_ignored(&self) -> bool {
+        self.magnetometer_ignored
     }
 
     #[inline]
@@ -276,7 +293,7 @@ pub enum Convention {
 
 impl Default for Convention {
     fn default() -> Self {
-        Self::Nwu
+        Self::Enu
     }
 }
 
@@ -335,10 +352,10 @@ impl Default for AhrsConfig {
             convention: Convention::default(),
             gain: 0.5,
             gyro_range: 0.0,
-            accel_rejection: 10.0,
-            magnetic_rejection: 10.0,
+            accel_rejection: 90.0,
+            magnetic_rejection: 90.0,
             rejection_timeout_secs: 0.0,
-            bias_config: None,
+            bias_config: Some(BiasConfig::default()),
         }
     }
 }
@@ -409,7 +426,7 @@ impl AhrsConfig {
         if self.gyro_range == 0.0 {
             f32::MAX
         } else {
-            0.98 * self.gyro_range
+            0.98 * self.gyro_range.to_radians()
         }
     }
 
@@ -462,7 +479,7 @@ impl Default for BiasConfig {
     fn default() -> Self {
         Self {
             sample_rate: 100.0,
-            stationary_threshold: 3.0,
+            stationary_threshold: 3.0, // deg/s
             stationary_period: 3.0,
         }
     }
@@ -491,7 +508,7 @@ mod test {
             dt: 0.0,
         };
 
-        fusion.update(sensors);
+        fusion.update(&sensors);
         let euler = fusion.quaternion().euler_angles();
 
         assert_eq!(euler, (0.0, 0.0, 0.0));
