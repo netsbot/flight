@@ -2,11 +2,10 @@
 
 mod altitude_estimator;
 pub mod fusion;
+pub mod imu;
 pub mod pid;
 
-use crate::fusion::Convention::Enu;
-use crate::fusion::{Ahrs, AhrsConfig};
-use crate::pid::{PidController, PidDebug};
+use crate::pid::PidController;
 use nalgebra::Vector3;
 
 #[derive(Debug, Clone, Copy)]
@@ -17,13 +16,6 @@ pub struct MotorOutputs {
     pub back_right: f32,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct FlightComputerDebug {
-    pub roll: PidDebug,
-    pub pitch: PidDebug,
-    pub yaw: PidDebug,
-}
-
 pub struct ControllerInput {
     pub throttle: f32,
     pub roll: f32,
@@ -31,74 +23,46 @@ pub struct ControllerInput {
     pub yaw: f32,
 }
 
-pub struct Sensors {
-    pub accel: Vector3<f32>,
-    pub gyro: Vector3<f32>,
-    pub magnetometer: Option<Vector3<f32>>,
-    pub alt: f32,
-    pub dt: f32, // in seconds
+pub struct RateController {
+    pid_rate: (PidController, PidController, PidController), // roll, pitch, yaw
 }
 
-pub struct FlightComputer {
-    ahrs: Ahrs,
-    pid_angular_vel: (PidController, PidController, PidController), // roll, pitch, yaw
-    pid_altitude: PidController,
-}
-
-impl FlightComputer {
-    pub fn new() -> Self {
+impl Default for RateController {
+    fn default() -> Self {
         Self {
-            ahrs: Ahrs::new(
-                AhrsConfig::default()
-                    .with_convention(Enu)
-                    .with_gain(0.12) // Fast enough to lock gravity, slow enough to reject linear acceleration
-                    .with_accel_rejection(45.0),
-            ),
-
-            pid_angular_vel: (
-                // PidController::new(Kp, Ki, Kd, d_cutoff_hz, i_limit)
+            pid_rate: (
                 PidController::new(2.5, 0.05, 0.18, 60.0, 5.0), // Roll rate PID
                 PidController::new(2.5, 0.05, 0.18, 60.0, 5.0), // Pitch rate PID
-                PidController::new(2.0, 0.02, 0.00, 60.0, 5.0),
+                PidController::new(2.0, 0.02, 0.00, 60.0, 5.0), // Yaw rate PID
             ),
+        }
+    }
+}
 
-            pid_altitude: PidController::new(1.2, 0.1, 0.8, 10.0, 100.0),
+impl RateController {
+    pub fn new() -> Self {
+        Self {
+            pid_rate: (
+                PidController::new(2.5, 0.05, 0.18, 60.0, 5.0), // Roll rate PID
+                PidController::new(2.5, 0.05, 0.18, 60.0, 5.0), // Pitch rate PID
+                PidController::new(2.0, 0.02, 0.00, 60.0, 5.0), // Yaw rate PID
+            ),
         }
     }
 
-    pub fn update(
+    /// Runs at 4 kHz / 8 kHz on Core 1
+    pub fn step(
         &mut self,
-        sensors: Sensors,
-        input: ControllerInput,
-    ) -> (MotorOutputs, FlightComputerDebug) {
-        self.ahrs.update(&sensors);
-        let roll_rate = sensors.gyro.y;
-        let pitch_rate = -sensors.gyro.x; // Negate so pitching nose down gives negative error to pitch back up
-        let yaw_rate = sensors.gyro.z;
+        target_rate: Vector3<f32>,
+        gyro: Vector3<f32>,
+        throttle: f32,
+        dt: f32,
+    ) -> MotorOutputs {
+        let roll_cmd = self.pid_rate.0.update(gyro.x, target_rate.x, dt);
+        let pitch_cmd = self.pid_rate.1.update(gyro.y, target_rate.y, dt);
+        let yaw_cmd = self.pid_rate.2.update(gyro.z, target_rate.z, dt);
 
-        let (out_r, debug_r) = self
-            .pid_angular_vel
-            .0
-            .update(roll_rate, input.roll, sensors.dt);
-
-        let (out_p, debug_p) = self
-            .pid_angular_vel
-            .1
-            .update(pitch_rate, input.pitch, sensors.dt);
-        let (out_y, debug_y) = self
-            .pid_angular_vel
-            .2
-            .update(yaw_rate, input.yaw, sensors.dt);
-
-        let outputs = mix(input.throttle, 0.0, 0.0, 0.0);
-
-        let debug = FlightComputerDebug {
-            roll: debug_r,
-            pitch: debug_p,
-            yaw: debug_y,
-        };
-
-        (outputs, debug)
+        mix(throttle, roll_cmd, pitch_cmd, yaw_cmd)
     }
 }
 

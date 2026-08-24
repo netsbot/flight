@@ -1,47 +1,23 @@
 {
   "version": 1,
+  "author": "Nguyen Hoang Minh",
   "editor": "wokwi",
   "parts": [
-    {
-      "type": "board-esp32-s3-devkitc-1",
-      "id": "esp",
-      "top": 0.59,
-      "left": 0.67,
-      "attrs": {
-        "flashSize": "16"
-      }
-    },
-    {
-      "type": "board-bmp180",
-      "id": "bmp",
-      "top": -150.0,
-      "left": -100.0,
-      "attrs": {}
-    },
-    {
-      "type": "wokwi-mpu6050",
-      "id": "mpu",
-      "top": -150.0,
-      "left": 100.0,
-      "attrs": {}
-    }
+    { "type": "board-esp32-s3-devkitc-1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "board-mpu6050", "id": "imu", "top": 0, "left": 180, "attrs": {} },
+    { "type": "wokwi-mpu6050", "id": "imu1", "top": 23.02, "left": -199.28, "attrs": {} }
   ],
   "connections": [
     [ "esp:TX", "$serialMonitor:RX", "", [] ],
     [ "esp:RX", "$serialMonitor:TX", "", [] ],
-
-    [ "esp:GND.1", "bmp:GND", "black", [ "v0" ] ],
-    [ "esp:3V3.1", "bmp:VCC", "red", [ "v0" ] ],
-    [ "esp:8", "bmp:SDA", "blue", [ "v0" ] ],
-    [ "esp:9", "bmp:SCL", "yellow", [ "v0" ] ],
-
-    [ "bmp:GND", "mpu:GND", "black", [ "v0" ] ],
-    [ "bmp:VCC", "mpu:VCC", "red", [ "v0" ] ],
-    [ "esp:8", "mpu:SDA", "blue", [ "v0" ] ],
-    [ "esp:9", "mpu:SCL", "yellow", [ "v0" ] ]
+    [ "esp:3V3", "imu:VCC", "red", [ "v0" ] ],
+    [ "esp:GND.1", "imu:GND", "black", [ "v0" ] ],
+    [ "esp:12", "imu:SCL", "blue", [ "v0" ] ],
+    [ "esp:11", "imu:SDA", "green", [ "v0" ] ],
+    [ "imu1:VCC", "esp:3V3.1", "red", [ "v0" ] ],
+    [ "imu1:GND", "esp:GND.1", "black", [ "v0" ] ],
+    [ "imu1:SCL", "esp:12", "green", [ "v0" ] ],
+    [ "imu1:SDA", "esp:11", "green", [ "v0" ] ]
   ],
-  "serialMonitor": {
-    "display": "terminal",
-    "convertEol": true
-  }
+  "dependencies": {}
 }

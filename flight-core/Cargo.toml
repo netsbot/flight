@@ -5,3 +5,6 @@ edition = "2024"
 
 [dependencies]
 nalgebra = {workspace = true}
+num-traits = {version = "0.2.19", default-features = false, features = ["libm"]}
+defmt = "1.1.1"
+heapless = "0.8.0"

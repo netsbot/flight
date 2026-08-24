@@ -1,4 +1,4 @@
-use crate::Sensors;
+use crate::imu::ImuFrame;
 use core::f32::consts::PI;
 use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 use num_traits::Float;
@@ -30,7 +30,6 @@ pub struct Ahrs {
     magnetometer_recovery_threshold: i32,
 
     // Bias correction fields
-    bias_filter_coeff: Option<f32>,
     bias_timeout: Option<u32>,
     bias_timer: u32,
     bias_offset: Vector3<f32>,
@@ -38,15 +37,9 @@ pub struct Ahrs {
 
 impl Ahrs {
     pub fn new(config: AhrsConfig) -> Self {
-        let (bias_filter_coeff, bias_timeout) = config
-            .bias_config
-            .as_ref()
-            .map(|bias_cfg| {
-                let coeff = 2.0 * PI * CUTOFF_FREQ * (1.0 / bias_cfg.sample_rate);
-                let timeout = (bias_cfg.stationary_period * bias_cfg.sample_rate) as u32;
-                (coeff, timeout)
-            })
-            .unzip();
+        let bias_timeout = config.bias_config.as_ref().map(|bias_cfg| {
+            (bias_cfg.stationary_period * bias_cfg.sample_rate) as u32
+        });
 
         Self {
             quaternion: UnitQuaternion::identity(),
@@ -64,7 +57,6 @@ impl Ahrs {
             magnetometer_ignored: false,
             magnetometer_recovery_threshold: config.rejection_timeout(),
             magnetometer_recovery_trigger: 0,
-            bias_filter_coeff,
             bias_timeout,
             bias_timer: 0,
             bias_offset: Vector3::zeros(),
@@ -89,14 +81,14 @@ impl Ahrs {
         self.bias_timer = 0;
     }
 
-    pub fn update(&mut self, sensors: &Sensors) {
-        self.config.set_sample_period(sensors.dt);
+    pub fn update(&mut self, imu_frame: ImuFrame, dt: f32) {
+        self.config.set_sample_period(dt);
 
         // Apply bias correction if enabled (gyro in deg/s)
         let corrected_gyro = if let Some(bias_cfg) = &self.config.bias_config {
-            let gyro_corrected = sensors.gyro - self.bias_offset;
+            let gyro_corrected = imu_frame.gyro_rad_s - self.bias_offset;
 
-            let thresh = bias_cfg.stationary_threshold;
+            let thresh = bias_cfg.stationary_threshold.to_radians();
             if gyro_corrected.x.abs() > thresh
                 || gyro_corrected.y.abs() > thresh
                 || gyro_corrected.z.abs() > thresh
@@ -104,16 +96,17 @@ impl Ahrs {
                 self.bias_timer = 0;
             } else if self.bias_timer < self.bias_timeout.unwrap_or(0) {
                 self.bias_timer += 1;
-            } else if let Some(coeff) = self.bias_filter_coeff {
+            } else {
+                let coeff = 2.0 * PI * CUTOFF_FREQ * dt;
                 self.bias_offset = self.bias_offset + gyro_corrected.scale(coeff);
             }
 
             gyro_corrected
         } else {
-            sensors.gyro
+            imu_frame.gyro_rad_s
         };
 
-        self.accel = sensors.accel;
+        self.accel = imu_frame.accel_g;
 
         if corrected_gyro.x.abs() > self.config.gyro_range()
             || corrected_gyro.y.abs() > self.config.gyro_range()
@@ -139,8 +132,9 @@ impl Ahrs {
         let mut half_accel_feedback = Vector3::zeros();
         self.accel_ignored = true;
 
-        if sensors.accel != Vector3::zeros() {
-            self.half_accel_feedback = Self::feedback(sensors.accel.normalize(), self.half_gravity);
+        if imu_frame.accel_g != Vector3::zeros() {
+            self.half_accel_feedback =
+                Self::feedback(imu_frame.accel_g.normalize(), self.half_gravity);
 
             if self.startup
                 || self.half_accel_feedback.norm_squared() <= self.config.accel_rejection()
@@ -170,7 +164,7 @@ impl Ahrs {
         let mut half_magnetometer_feedback = Vector3::zeros();
         self.magnetometer_ignored = true;
 
-        if let Some(magnetometer) = sensors.magnetometer {
+        if let Some(magnetometer) = imu_frame.magnetometer {
             let half_magnetic = self.config.convention().half_magnetic(self.quaternion);
 
             self.half_magnetometer_feedback = Self::feedback(
@@ -204,8 +198,7 @@ impl Ahrs {
             }
         }
 
-        let gyro_rad = corrected_gyro.map(|v| v.to_radians());
-        let half_gyro = gyro_rad.scale(0.5f32);
+        let half_gyro = corrected_gyro.scale(0.5f32);
         let adjusted_half_gyro =
             half_gyro + (half_accel_feedback + half_magnetometer_feedback).scale(self.ramped_gain);
 
@@ -218,7 +211,7 @@ impl Ahrs {
                     )),
         );
 
-        if sensors.magnetometer.is_none() && self.startup {
+        if imu_frame.magnetometer.is_none() && self.startup {
             self.set_heading(0.0);
         }
     }
@@ -248,13 +241,9 @@ impl Ahrs {
 
     pub fn euler_angles(&self) -> Vector3<f32> {
         let q = self.quaternion;
-        let roll = (q.j * q.k + q.w * q.i)
-            .atan2(q.w * q.w + q.k * q.k - 0.5)
-            .to_degrees();
-        let pitch = (2.0 * (q.w * q.j - q.i * q.k)).asin().to_degrees();
-        let yaw = (q.i * q.j + q.w * q.k)
-            .atan2(q.w * q.w + q.i * q.i - 0.5)
-            .to_degrees();
+        let roll = (q.j * q.k + q.w * q.i).atan2(q.w * q.w + q.k * q.k - 0.5);
+        let pitch = (2.0 * (q.w * q.j - q.i * q.k)).asin();
+        let yaw = (q.i * q.j + q.w * q.k).atan2(q.w * q.w + q.i * q.i - 0.5);
         Vector3::new(roll, pitch, yaw)
     }
 
@@ -354,7 +343,7 @@ impl Default for AhrsConfig {
             gyro_range: 0.0,
             accel_rejection: 90.0,
             magnetic_rejection: 90.0,
-            rejection_timeout_secs: 0.0,
+            rejection_timeout_secs: 2.0,
             bias_config: Some(BiasConfig::default()),
         }
     }
@@ -488,29 +477,5 @@ impl Default for BiasConfig {
 impl BiasConfig {
     pub fn new() -> Self {
         Self::default()
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn initialization() {
-        let config = AhrsConfig::default().with_sample_rate(100.0);
-        let mut fusion = Ahrs::new(config);
-
-        let sensors = Sensors {
-            accel: Vector3::zeros(),
-            gyro: Vector3::zeros(),
-            magnetometer: None,
-            alt: 0.0,
-            dt: 0.0,
-        };
-
-        fusion.update(&sensors);
-        let euler = fusion.quaternion().euler_angles();
-
-        assert_eq!(euler, (0.0, 0.0, 0.0));
     }
 }

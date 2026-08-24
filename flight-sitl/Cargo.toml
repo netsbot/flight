@@ -8,3 +8,4 @@ flight-core = {path = "../flight-core"}
 nalgebra = {workspace = true}
 csv = "1.3"
 serde = { version = "1.0", features = ["derive"] }
+gamepads = "0.1.7"

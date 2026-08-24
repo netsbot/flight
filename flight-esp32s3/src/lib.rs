@@ -1,0 +1,84 @@
+#![feature(asm_experimental_arch)]
+#![no_std]
+
+use core::time::Duration;
+
+pub mod imu;
+pub mod profiler;
+
+#[derive(Copy, Clone)]
+pub struct CycleInstant(u32);
+
+impl CycleInstant {
+    const CPU_HZ_INV: f32 = 1.0 / 240_000_000.0;
+
+    /// Returns the current hardware cycle instant.
+    #[inline(always)]
+    pub fn now() -> Self {
+        let count: u32;
+        unsafe {
+            core::arch::asm!("rsr.ccount {0}", out(reg) count);
+        }
+        Self(count)
+    }
+
+    /// Returns the raw CPU cycle difference since an earlier instant.
+    #[inline(always)]
+    pub fn cycles_since(&self, earlier: Self) -> u32 {
+        self.0.wrapping_sub(earlier.0)
+    }
+
+    /// Returns delta-t in seconds (`f32`) since an earlier instant.
+    #[inline(always)]
+    pub fn secs_since(&self, earlier: Self) -> f32 {
+        (self.cycles_since(earlier) as f32) * Self::CPU_HZ_INV
+    }
+
+    /// Returns `Duration` since an earlier instant.
+    #[inline(always)]
+    pub fn duration_since(&self, earlier: Self) -> Duration {
+        Duration::from_secs_f32(self.secs_since(earlier))
+    }
+
+    /// Returns the raw CPU cycles elapsed from `self` until now.
+    #[inline(always)]
+    pub fn elapsed_cycles(&self) -> u32 {
+        Self::now().cycles_since(*self)
+    }
+
+    /// Returns elapsed time in seconds (`f32`) from `self` until now.
+    #[inline(always)]
+    pub fn elapsed_secs(&self) -> f32 {
+        Self::now().secs_since(*self)
+    }
+
+    /// Returns elapsed `Duration` from `self` until now.
+    #[inline(always)]
+    pub fn elapsed(&self) -> Duration {
+        Self::now().duration_since(*self)
+    }
+
+    /// Resets `self` to `CycleInstant::now()`.
+    #[inline(always)]
+    pub fn reset(&mut self) {
+        *self = Self::now();
+    }
+
+    /// Computes the elapsed delta-t in seconds from `self` to now, and updates `self` to now.
+    #[inline(always)]
+    pub fn elapsed_secs_and_reset(&mut self) -> f32 {
+        let now = Self::now();
+        let dt = now.secs_since(*self);
+        *self = now;
+        dt
+    }
+
+    /// Computes the elapsed `Duration` from `self` to now, and updates `self` to now.
+    #[inline(always)]
+    pub fn elapsed_and_reset(&mut self) -> Duration {
+        let now = Self::now();
+        let dur = now.duration_since(*self);
+        *self = now;
+        dur
+    }
+}

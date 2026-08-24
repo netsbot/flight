@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cargo build flight-esp32s3 --bin embassy",
+      "type": "shell",
+      "command": "cargo build",
+      "options": {
+        "cwd": "/home/netsbit/projects/drone/flight/flight-esp32s3",
+        "env": {
+          "LIBCLANG_PATH": "/home/netsbit/.rustup/toolchains/esp/xtensa-esp32-elf-clang/esp-20.1.1_20250829/esp-clang/lib",
+          "PATH": "/home/netsbit/.rustup/toolchains/esp/xtensa-esp-elf/esp-15.2.0_20250920/xtensa-esp-elf/bin:/home/netsbit/.local/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/opt/cuda/bin:/var/lib/flatpak/exports/bin:/usr/lib/jvm/default/bin:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl:/usr/lib/rustup/bin:/home/netsbit/.local/share/coursier/bin:${env:PATH}"
+        }
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$rustc"]
+    }
+  ]
+}

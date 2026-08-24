@@ -1,10 +1,9 @@
-use flight_core::fusion::Convention;
-use flight_core::{Sensors, fusion};
-use nalgebra::{Quaternion, UnitQuaternion, Vector3};
+use flight_core::fusion::{self, Convention};
+use flight_core::imu::ImuFrame;
+use nalgebra::Vector3;
 use serde::Deserialize;
 use std::error::Error;
 use std::fs::File;
-use std::io::Write;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SitlData {
@@ -82,26 +81,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
         prev_time = Some(data.sim_time);
 
-        fusion.update(&Sensors {
-            accel: data.accel,
-            gyro: data.gyro,
+        let frame = ImuFrame {
+            accel_g: data.accel,
+            gyro_rad_s: data.gyro,
             magnetometer: None,
-            alt: 0.0,
-            dt,
-        });
+        };
+        fusion.update(frame, dt);
 
-        let q = fusion.quaternion();
-
-        // Export CSV row. `data.rpy` contains the ground-truth values read from CSV.
-        // `estimated_q.euler_angles()` returns (roll, pitch, yaw) in radians.
-
-        let est_roll = (q.j * q.k + q.w * q.i)
-            .atan2(q.w * q.w + q.k * q.k - 0.5)
-            .to_degrees();
-        let est_pitch = (2.0 * (q.w * q.j - q.i * q.k)).asin().to_degrees();
-        let est_yaw = (q.i * q.j + q.w * q.k)
-            .atan2(q.w * q.w + q.i * q.i - 0.5)
-            .to_degrees();
+        let euler_rad = fusion.euler_angles();
+        let est_roll = euler_rad.x.to_degrees();
+        let est_pitch = euler_rad.y.to_degrees();
+        let est_yaw = euler_rad.z.to_degrees();
 
         wtr.write_record(&[
             data.sim_time.to_string(),
