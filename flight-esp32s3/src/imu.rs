@@ -12,9 +12,7 @@ use mpu9250::{AccelDataRate, Dlpf, Imu, InterruptConfig, InterruptEnable, Mpu925
 
 pub struct BoardImu {
     pub inner: Mpu9250<
-        mpu9250::SpiDevice<
-            CriticalSectionDevice<'static, Spi<'static, Blocking>, Output<'static>, Delay>,
-        >,
+        CriticalSectionDevice<'static, Spi<'static, Blocking>, Output<'static>, Delay>,
         Imu,
     >,
 }
