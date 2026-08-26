@@ -1,4 +1,4 @@
-use crate::imu::ImuFrame;
+use crate::imu::{AccumulatedImu, ImuFrame};
 use core::f32::consts::PI;
 use nalgebra::{Quaternion, UnitQuaternion, Vector3};
 use num_traits::Float;
@@ -37,9 +37,10 @@ pub struct Ahrs {
 
 impl Ahrs {
     pub fn new(config: AhrsConfig) -> Self {
-        let bias_timeout = config.bias_config.as_ref().map(|bias_cfg| {
-            (bias_cfg.stationary_period * bias_cfg.sample_rate) as u32
-        });
+        let bias_timeout = config
+            .bias_config
+            .as_ref()
+            .map(|bias_cfg| (bias_cfg.stationary_period * bias_cfg.sample_rate) as u32);
 
         Self {
             quaternion: UnitQuaternion::identity(),
@@ -132,7 +133,16 @@ impl Ahrs {
         let mut half_accel_feedback = Vector3::zeros();
         self.accel_ignored = true;
 
-        if imu_frame.accel_g != Vector3::zeros() {
+        // Reject accel when magnitude deviates >10% from 1 g (9.81 m/s²).
+        // Thrust adds directly to az so the vector direction stays near-vertical
+        // (angle rejection misses it) while the magnitude spikes well above 9.81.
+        const GRAVITY: f32 = 9.81;
+        const ACCEL_MAGNITUDE_TOLERANCE: f32 = 0.1; // 10%
+        let accel_magnitude = imu_frame.accel_g.norm();
+        let accel_magnitude_ok =
+            (accel_magnitude - GRAVITY).abs() <= GRAVITY * ACCEL_MAGNITUDE_TOLERANCE;
+
+        if accel_magnitude_ok && imu_frame.accel_g != Vector3::zeros() {
             self.half_accel_feedback =
                 Self::feedback(imu_frame.accel_g.normalize(), self.half_gravity);
 
@@ -214,6 +224,19 @@ impl Ahrs {
         if imu_frame.magnetometer.is_none() && self.startup {
             self.set_heading(0.0);
         }
+    }
+
+    pub fn update_accumulated_imu(&mut self, accum: AccumulatedImu) {
+        let avg_gyro = accum.delta_angle / accum.dt;
+        let avg_accel = accum.delta_velocity / accum.dt;
+
+        let frame = ImuFrame {
+            accel_g: avg_accel,
+            gyro_rad_s: avg_gyro,
+            magnetometer: None,
+        };
+
+        self.update(frame, accum.dt);
     }
 
     pub fn set_heading(&mut self, heading: f32) {

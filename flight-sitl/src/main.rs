@@ -6,7 +6,6 @@ use std::net::TcpListener;
 fn main() {
     let mut gamepads = Gamepads::new();
 
-    println!("Waiting for Webots simulation to connect on port 5599...");
     let listener = TcpListener::bind("127.0.0.1:5599").expect("Failed to bind TCP port");
 
     let (mut stream, addr) = listener.accept().expect("Failed to accept connection");
@@ -76,7 +75,7 @@ fn main() {
 
         // Print telemetry every 20 frames (~100ms) to avoid stdout lag
         frame_count += 1;
-        if frame_count % 20 == 0 {
+        if frame_count.is_multiple_of(20) {
             println!(
                 "MOTORS| FR: {:5.2} | BL: {:5.2} | FL: {:5.2} | BR: {:5.2}\n",
                 outputs.front_right, outputs.back_left, outputs.front_left, outputs.back_right
