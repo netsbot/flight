@@ -220,6 +220,17 @@ impl Oversampling {
             Oversampling::Oversampling16X => BME280_OVERSAMPLING_16X,
         }
     }
+
+    /// Returns the multiplier factor corresponding to the oversampling setting
+    pub fn factor(&self) -> u32 {
+        match self {
+            Oversampling::Oversampling1X => 1,
+            Oversampling::Oversampling2X => 2,
+            Oversampling::Oversampling4X => 4,
+            Oversampling::Oversampling8X => 8,
+            Oversampling::Oversampling16X => 16,
+        }
+    }
 }
 
 impl Default for Oversampling {
@@ -294,6 +305,15 @@ impl Configuration {
     pub fn with_iir_filter(mut self, filter: IIRFilter) -> Self {
         self.iir_filter = filter;
         self
+    }
+
+    /// Computes the typical conversion time in milliseconds according to datasheet Sec 3.8.1:
+    /// T_typ = 1.25 + (2.3 * osrs_t) + (2.3 * osrs_p + 0.575) ms
+    pub fn typical_conversion_time_ms(&self) -> u32 {
+        let t_osrs = self.temperature_oversampling.factor() as f32;
+        let p_osrs = self.pressure_oversampling.factor() as f32;
+        let t_typ = 1.25 + (2.3 * t_osrs) + (2.3 * p_osrs + 0.575);
+        t_typ as u32
     }
 }
 
@@ -446,6 +466,8 @@ pub(crate) struct BME280Common<I> {
     interface: I,
     /// calibration data
     calibration: Option<CalibrationData>,
+    /// active configuration
+    config: Configuration,
 }
 
 impl<I> BME280Common<I>
@@ -461,6 +483,7 @@ where
         delay: &mut D,
         config: Configuration,
     ) -> Result<(), Error<I::Error>> {
+        self.config = config;
         self.verify_chip_id().await?;
         self.soft_reset(delay).await?;
         self.calibrate().await?;
@@ -571,17 +594,20 @@ where
         // Trigger a single forced conversion
         self.forced(delay).await?;
 
-        // In forced mode, the BMP280 starts conversion shortly after the ctrl_meas write.
-        // Poll the STATUS register (0xF3) measuring[0] bit (bit 3).
-        // If measuring is still 1 (or if conversion hasn't finished), wait up to 50ms (50 x 1ms).
-        // After conversion finishes, the sensor automatically returns to sleep mode and
-        // transfers the results from internal ADC registers to 0xF7..0xFC.
-        for _ in 0..50 {
-            delay.delay_ms(1).await;
+        // 1. Sleep for the typical conversion time calculated from oversampling settings
+        //    (frees the SPI bus and yields to other tasks during the bulk duration)
+        let typical_ms = self.config.typical_conversion_time_ms();
+        if typical_ms > 0 {
+            delay.delay_ms(typical_ms).await;
+        }
+
+        // 2. Short poll loop for the remaining tail (usually completes on 1st or 2nd check)
+        for _ in 0..10 {
             let status = self.interface.read_register(BME280_STATUS_ADDR).await?;
             if (status & BME280_STATUS_MEASURING_MSK) == 0 {
                 break;
             }
+            delay.delay_ms(1).await;
         }
 
         let measurements = self.interface.read_data(BME280_DATA_ADDR).await?;

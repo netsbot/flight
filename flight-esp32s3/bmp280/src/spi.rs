@@ -46,6 +46,7 @@ where
         let mut common = BME280Common {
             interface: SPIInterface { spi },
             calibration: None,
+            config,
         };
         common.init(&mut delay, config).await?;
         Ok(Self { common, delay })

@@ -69,6 +69,7 @@ where
         let mut common = BME280Common {
             interface: I2CInterface { i2c, address },
             calibration: None,
+            config,
         };
         common.init(&mut delay, config).await?;
         Ok(Self { common, delay })
