@@ -1,10 +1,20 @@
 #![feature(asm_experimental_arch)]
 #![no_std]
 
-use core::time::Duration;
+use core::{sync::atomic::AtomicI32, time::Duration};
 
-pub mod imu;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, watch::Watch};
+use flight_core::imu::AccumulatedImu;
+
+mod baro;
+mod imu;
+pub mod interrupt_tasks;
 pub mod profiler;
+pub mod tasks;
+
+static THROTTLE: AtomicI32 = AtomicI32::new(0);
+static AHRS_CHANNEL: Channel<CriticalSectionRawMutex, AccumulatedImu, 8> = Channel::new();
+static ATTITUDE_WATCH: Watch<CriticalSectionRawMutex, nalgebra::Vector3<f32>, 2> = Watch::new();
 
 #[derive(Copy, Clone)]
 pub struct CycleInstant(u32);

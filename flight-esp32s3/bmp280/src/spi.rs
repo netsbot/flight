@@ -1,61 +1,25 @@
 //! BME280 driver for sensors attached via SPI.
 
-#[cfg(feature = "async")]
-use core::future::Future;
-#[cfg(feature = "sync")]
-use embedded_hal::delay::DelayNs;
-#[cfg(feature = "sync")]
-use embedded_hal::spi::SpiDevice;
-#[cfg(feature = "async")]
-use embedded_hal_async::delay::DelayNs as AsyncDelayNs;
-#[cfg(feature = "async")]
-use embedded_hal_async::spi::SpiDevice as AsyncSpiDevice;
+use embedded_hal_async::delay::DelayNs;
+use embedded_hal_async::spi::SpiDevice;
 
-#[cfg(feature = "async")]
-use super::{AsyncBME280Common, AsyncInterface};
-#[cfg(feature = "sync")]
 use super::{BME280Common, Interface};
 use super::{
-    Configuration, Error, IIRFilter, Measurements, Oversampling, BME280_H_CALIB_DATA_LEN,
-    BME280_P_T_CALIB_DATA_LEN, BME280_P_T_H_DATA_LEN,
+    Configuration, Error, IIRFilter, Measurements, Oversampling,
+    BME280_P_T_CALIB_DATA_LEN, BME280_P_T_DATA_LEN,
 };
 
 /// Representation of a BMP280
-#[maybe_async_cfg::maybe(
-    sync(
-        feature = "sync",
-        self = "Bmp280",
-        idents(
-            AsyncBME280Common(sync = "BME280Common"),
-            AsyncSPIInterface(sync = "SPIInterface"),
-        )
-    ),
-    async(feature = "async", keep_self)
-)]
 #[derive(Debug, Default)]
-pub struct AsyncBmp280<SPI, D> {
-    common: AsyncBME280Common<AsyncSPIInterface<SPI>>,
+pub struct Bmp280<SPI, D> {
+    common: BME280Common<SPIInterface<SPI>>,
     delay: D,
 }
 
-#[maybe_async_cfg::maybe(
-    sync(
-        feature = "sync",
-        self = "Bmp280",
-        idents(
-            AsyncSpiDevice(sync = "SpiDevice"),
-            AsyncSpiBus(sync = "SpiBus"),
-            AsyncSPIInterface(sync = "SPIInterface"),
-            AsyncDelayNs(sync = "DelayNs"),
-            AsyncBME280Common(sync = "BME280Common"),
-        )
-    ),
-    async(feature = "async", keep_self)
-)]
-impl<SPI, SPIE, D> AsyncBmp280<SPI, D>
+impl<SPI, SPIE, D> Bmp280<SPI, D>
 where
-    SPI: AsyncSpiDevice<Error = SPIE>,
-    D: AsyncDelayNs,
+    SPI: SpiDevice<Error = SPIE>,
+    D: DelayNs,
 {
     /// Create a new Bmp280 struct and initialize it with default configuration
     pub async fn new(
@@ -66,7 +30,6 @@ where
             spi,
             delay,
             Configuration::default()
-                .with_humidity_oversampling(Oversampling::Oversampling1X)
                 .with_pressure_oversampling(Oversampling::Oversampling16X)
                 .with_temperature_oversampling(Oversampling::Oversampling2X)
                 .with_iir_filter(IIRFilter::Coefficient16),
@@ -80,8 +43,8 @@ where
         mut delay: D,
         config: Configuration,
     ) -> Result<Self, Error<SPIError<SPIE>>> {
-        let mut common = AsyncBME280Common {
-            interface: AsyncSPIInterface { spi },
+        let mut common = BME280Common {
+            interface: SPIInterface { spi },
             calibration: None,
         };
         common.init(&mut delay, config).await?;
@@ -96,164 +59,83 @@ where
         self.common.init(&mut self.delay, config).await
     }
 
-    /// Captures and processes sensor data for temperature, pressure, and humidity
+    /// Captures and processes sensor data for temperature and pressure
     pub async fn measure(
         &mut self,
     ) -> Result<Measurements<SPIError<SPIE>>, Error<SPIError<SPIE>>> {
         self.common.measure(&mut self.delay).await
     }
+
+    /// Returns the calibration data read from the sensor
+    pub fn calibration(&self) -> Option<&super::CalibrationData> {
+        self.common.calibration()
+    }
 }
 
 /// Register access functions for SPI
-#[maybe_async_cfg::maybe(
-    sync(feature = "sync", self = "SPIInterface",),
-    async(feature = "async", keep_self)
-)]
 #[derive(Debug, Default)]
-struct AsyncSPIInterface<SPI> {
+pub(crate) struct SPIInterface<SPI> {
     /// concrete SPI device implementation
     spi: SPI,
 }
 
-#[cfg(feature = "sync")]
 impl<SPI> Interface for SPIInterface<SPI>
 where
     SPI: SpiDevice,
-    // SPI::Buf: SpiBus<u8>,
 {
     type Error = SPIError<SPI::Error>;
 
-    fn read_register(&mut self, register: u8) -> Result<u8, Error<Self::Error>> {
+    async fn read_register(&mut self, register: u8) -> Result<u8, Error<Self::Error>> {
         let mut result = [0u8];
-        self.read_any_register(register, &mut result)?;
+        self.read_any_register(register, &mut result).await?;
         Ok(result[0])
     }
 
-    fn read_data(
+    async fn read_data(
         &mut self,
         register: u8,
-    ) -> Result<[u8; BME280_P_T_H_DATA_LEN], Error<Self::Error>> {
-        let mut data = [0; BME280_P_T_H_DATA_LEN];
-        self.read_any_register(register, &mut data)?;
+    ) -> Result<[u8; BME280_P_T_DATA_LEN], Error<Self::Error>> {
+        let mut data = [0; BME280_P_T_DATA_LEN];
+        self.read_any_register(register, &mut data).await?;
         Ok(data)
     }
 
-    fn read_pt_calib_data(
+    async fn read_pt_calib_data(
         &mut self,
         register: u8,
     ) -> Result<[u8; BME280_P_T_CALIB_DATA_LEN], Error<Self::Error>> {
         let mut data = [0; BME280_P_T_CALIB_DATA_LEN];
-        self.read_any_register(register, &mut data)?;
+        self.read_any_register(register, &mut data).await?;
         Ok(data)
     }
 
-    fn read_h_calib_data(
-        &mut self,
-        register: u8,
-    ) -> Result<[u8; BME280_H_CALIB_DATA_LEN], Error<Self::Error>> {
-        let mut data = [0; BME280_H_CALIB_DATA_LEN];
-        self.read_any_register(register, &mut data)?;
-        Ok(data)
-    }
-
-    fn write_register(&mut self, register: u8, payload: u8) -> Result<(), Error<Self::Error>> {
-        // If the first bit is 0, the register is written.
-        let transfer = [register & 0x7f, payload];
+    async fn write_register(&mut self, register: u8, payload: u8) -> Result<(), Error<Self::Error>> {
+        // In SPI mode, write bit is 0 (register & 0x7f)
+        let header = [register & 0x7f, payload];
         self.spi
-            .transfer(&mut [], &transfer)
+            .write(&header)
+            .await
             .map_err(|e| Error::Bus(SPIError::SPI(e)))?;
         Ok(())
     }
 }
 
-#[cfg(feature = "async")]
-impl<SPI> AsyncInterface for AsyncSPIInterface<SPI>
+impl<SPI> SPIInterface<SPI>
 where
-    SPI: AsyncSpiDevice,
-    // SPI::Buf: AsyncSpiBus<u8>,
-{
-    type Error = SPIError<SPI::Error>;
-
-    type ReadRegisterFuture<'a> = impl Future<Output = Result<u8, Error<Self::Error>>>
-    where
-        SPI: 'a;
-    fn read_register(&mut self, register: u8) -> Self::ReadRegisterFuture<'_> {
-        async move {
-            let mut result = [0u8];
-            self.read_any_register(register, &mut result).await?;
-            Ok(result[0])
-        }
-    }
-
-    type ReadDataFuture<'a> = impl Future<Output = Result<[u8; BME280_P_T_H_DATA_LEN], Error<Self::Error>>>
-    where
-        SPI: 'a;
-    fn read_data(&mut self, register: u8) -> Self::ReadDataFuture<'_> {
-        async move {
-            let mut data = [0; BME280_P_T_H_DATA_LEN];
-            self.read_any_register(register, &mut data).await?;
-            Ok(data)
-        }
-    }
-
-    type ReadPtCalibDataFuture<'a> = impl Future<Output = Result<[u8; BME280_P_T_CALIB_DATA_LEN], Error<Self::Error>>>
-    where
-        SPI: 'a;
-    fn read_pt_calib_data(&mut self, register: u8) -> Self::ReadPtCalibDataFuture<'_> {
-        async move {
-            let mut data = [0; BME280_P_T_CALIB_DATA_LEN];
-            self.read_any_register(register, &mut data).await?;
-            Ok(data)
-        }
-    }
-
-    type ReadHCalibDataFuture<'a> = impl Future<Output = Result<[u8; BME280_H_CALIB_DATA_LEN], Error<Self::Error>>>
-    where
-        SPI: 'a;
-    fn read_h_calib_data(&mut self, register: u8) -> Self::ReadHCalibDataFuture<'_> {
-        async move {
-            let mut data = [0; BME280_H_CALIB_DATA_LEN];
-            self.read_any_register(register, &mut data).await?;
-            Ok(data)
-        }
-    }
-
-    type WriteRegisterFuture<'a> = impl Future<Output = Result<(), Error<Self::Error>>>
-    where
-        SPI: 'a;
-    fn write_register(&mut self, register: u8, payload: u8) -> Self::WriteRegisterFuture<'_> {
-        async move {
-            // If the first bit is 0, the register is written.
-            let transfer = [register & 0x7f, payload];
-            self.spi
-                .transfer(&mut [], &transfer)
-                .await
-                .map_err(|e| Error::Bus(SPIError::SPI(e)))?;
-            Ok(())
-        }
-    }
-}
-
-#[maybe_async_cfg::maybe(
-    sync(
-        feature = "sync",
-        self = "SPIInterface",
-        idents(AsyncSpiDevice(sync = "SpiDevice"), AsyncSpiBus(sync = "SpiBus"),)
-    ),
-    async(feature = "async", keep_self)
-)]
-impl<SPI> AsyncSPIInterface<SPI>
-where
-    SPI: AsyncSpiDevice,
-    // SPI::Buf: AsyncSpiBus<u8>,
+    SPI: SpiDevice,
 {
     async fn read_any_register(
         &mut self,
         register: u8,
         data: &mut [u8],
     ) -> Result<(), Error<SPIError<SPI::Error>>> {
+        // In SPI mode, read bit is 1 (register | 0x80)
+        let cmd = [register | 0x80];
         self.spi
-            .transfer(data, &[register])
+            .transaction(&mut [
+                embedded_hal_async::spi::Operation::Write(&cmd),
+                embedded_hal_async::spi::Operation::Read(data),
+            ])
             .await
             .map_err(|e| Error::Bus(SPIError::SPI(e)))?;
         Ok(())

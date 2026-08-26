@@ -1,4 +1,4 @@
-[package]
+package]
 name = "bme280"
 version = "0.5.1"
 authors = ["Sean Bruton <sean@uberfoo.net>"]

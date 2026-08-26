@@ -15,14 +15,8 @@
     unused_imports,
     unused_must_use
 )]
-#![cfg_attr(not(feature = "async"), deny(unstable_features))]
 // Turn off no_std if we turn on the "with_std" feature
 #![cfg_attr(not(feature = "with_std"), no_std)]
-#![cfg_attr(
-    feature = "async",
-    feature(type_alias_impl_trait),
-    feature(impl_trait_in_assoc_type)
-)]
 
 //! A platform agnostic Rust driver for the Bosch BME280 and BMP280, based on the
 //! [`embedded-hal`](https://github.com/rust-embedded/embedded-hal) traits.
@@ -48,17 +42,7 @@
 //! let i2c_bus = I2cdev::new("/dev/i2c-1").unwrap();
 //!
 //! // initialize the BME280 using the primary I2C address 0x76
-//! let mut bmp280 = BME280::new_primary(i2c_bus, Delay);
-//!
-//! // or, initialize the BME280 using the secondary I2C address 0x77
-//! // let mut bmp280 = BME280::new_secondary(i2c_bus, Delay);
-//!
-//! // or, initialize the BME280 using a custom I2C address
-//! // let bme280_i2c_addr = 0x88;
-//! // let mut bmp280 = BME280::new(i2c_bus, bme280_i2c_addr, Delay);
-//!
-//! // initialize the sensor
-//! bmp280.init().unwrap();
+//! let mut bmp280 = BME280::new_primary(i2c_bus, Delay).unwrap();
 //!
 //! // measure temperature, pressure, and humidity
 //! let measurements = bmp280.measure().unwrap();
@@ -71,13 +55,8 @@
 pub mod i2c;
 pub mod spi;
 
-#[cfg(feature = "async")]
-use core::future::Future;
 use core::marker::PhantomData;
-#[cfg(feature = "sync")]
-use embedded_hal::delay::DelayNs;
-#[cfg(feature = "async")]
-use embedded_hal_async::delay::DelayNs as AsyncDelayNs;
+use embedded_hal_async::delay::DelayNs;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -93,7 +72,6 @@ use std::error;
 use std::fmt;
 
 const BME280_PWR_CTRL_ADDR: u8 = 0xF4;
-const BME280_CTRL_HUM_ADDR: u8 = 0xF2;
 const BME280_CTRL_MEAS_ADDR: u8 = 0xF4;
 const BME280_CONFIG_ADDR: u8 = 0xF5;
 
@@ -104,14 +82,14 @@ const BME280_CHIP_ID: u8 = 0x60;
 const BMP280_CHIP_ID: u8 = 0x58;
 const BME280_CHIP_ID_ADDR: u8 = 0xD0;
 
+const BME280_STATUS_ADDR: u8 = 0xF3;
+const BME280_STATUS_MEASURING_MSK: u8 = 0x08; // bit 3 (measuring[0])
+
 const BME280_DATA_ADDR: u8 = 0xF7;
-const BME280_P_T_H_DATA_LEN: usize = 8;
+const BME280_P_T_DATA_LEN: usize = 6;
 
 const BME280_P_T_CALIB_DATA_ADDR: u8 = 0x88;
-const BME280_P_T_CALIB_DATA_LEN: usize = 26;
-
-const BME280_H_CALIB_DATA_ADDR: u8 = 0xE1;
-const BME280_H_CALIB_DATA_LEN: usize = 7;
+const BME280_P_T_CALIB_DATA_LEN: usize = 24;
 
 const BME280_TEMP_MIN: f32 = -40.0;
 const BME280_TEMP_MAX: f32 = 85.0;
@@ -119,16 +97,11 @@ const BME280_TEMP_MAX: f32 = 85.0;
 const BME280_PRESSURE_MIN: f32 = 30000.0;
 const BME280_PRESSURE_MAX: f32 = 110000.0;
 
-const BME280_HUMIDITY_MIN: f32 = 0.0;
-const BME280_HUMIDITY_MAX: f32 = 100.0;
-
 const BME280_SLEEP_MODE: u8 = 0x00;
 const BME280_FORCED_MODE: u8 = 0x01;
 const BME280_NORMAL_MODE: u8 = 0x03;
 
 const BME280_SENSOR_MODE_MSK: u8 = 0x03;
-
-const BME280_CTRL_HUM_MSK: u8 = 0x07;
 
 const BME280_CTRL_PRESS_MSK: u8 = 0x1C;
 const BME280_CTRL_PRESS_POS: u8 = 0x02;
@@ -198,7 +171,7 @@ impl<E> Format for Error<E> {
 impl<T: fmt::Debug + fmt::Display> error::Error for Error<T> {}
 
 /// BME280 operating mode
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "with_defmt", derive(defmt::Format))]
 pub enum SensorMode {
     /// Sleep mode
@@ -301,7 +274,6 @@ impl IIRFilter {
 pub struct Configuration {
     temperature_oversampling: Oversampling,
     pressure_oversampling: Oversampling,
-    humidity_oversampling: Oversampling,
     iir_filter: IIRFilter,
 }
 
@@ -318,12 +290,6 @@ impl Configuration {
         self
     }
 
-    /// Sets the humidity oversampling setting
-    pub fn with_humidity_oversampling(mut self, oversampling: Oversampling) -> Self {
-        self.humidity_oversampling = oversampling;
-        self
-    }
-
     /// Sets the IIR filter setting.
     pub fn with_iir_filter(mut self, filter: IIRFilter) -> Self {
         self.iir_filter = filter;
@@ -331,28 +297,36 @@ impl Configuration {
     }
 }
 
-#[derive(Debug)]
+/// Calibration data for temperature and pressure compensation.
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "with_defmt", derive(defmt::Format))]
-struct CalibrationData {
-    dig_t1: u16,
-    dig_t2: i16,
-    dig_t3: i16,
-    dig_p1: u16,
-    dig_p2: i16,
-    dig_p3: i16,
-    dig_p4: i16,
-    dig_p5: i16,
-    dig_p6: i16,
-    dig_p7: i16,
-    dig_p8: i16,
-    dig_p9: i16,
-    dig_h1: u8,
-    dig_h2: i16,
-    dig_h3: u8,
-    dig_h4: i16,
-    dig_h5: i16,
-    dig_h6: i8,
-    t_fine: i32,
+pub struct CalibrationData {
+    /// Calibration coefficient dig_T1
+    pub dig_t1: u16,
+    /// Calibration coefficient dig_T2
+    pub dig_t2: i16,
+    /// Calibration coefficient dig_T3
+    pub dig_t3: i16,
+    /// Calibration coefficient dig_P1
+    pub dig_p1: u16,
+    /// Calibration coefficient dig_P2
+    pub dig_p2: i16,
+    /// Calibration coefficient dig_P3
+    pub dig_p3: i16,
+    /// Calibration coefficient dig_P4
+    pub dig_p4: i16,
+    /// Calibration coefficient dig_P5
+    pub dig_p5: i16,
+    /// Calibration coefficient dig_P6
+    pub dig_p6: i16,
+    /// Calibration coefficient dig_P7
+    pub dig_p7: i16,
+    /// Calibration coefficient dig_P8
+    pub dig_p8: i16,
+    /// Calibration coefficient dig_P9
+    pub dig_p9: i16,
+    /// Fine temperature representation
+    pub t_fine: i32,
 }
 
 /// Measurement data
@@ -364,15 +338,13 @@ pub struct Measurements<E> {
     pub temperature: f32,
     /// pressure in pascals
     pub pressure: f32,
-    /// percent relative humidity (`0` with BMP280)
-    pub humidity: f32,
     #[cfg_attr(feature = "serde", serde(skip))]
     _e: PhantomData<E>,
 }
 
 impl<E> Measurements<E> {
     fn parse(
-        data: [u8; BME280_P_T_H_DATA_LEN],
+        data: [u8; BME280_P_T_DATA_LEN],
         calibration: &mut CalibrationData,
     ) -> Result<Self, Error<E>> {
         let data_msb = (data[0] as u32) << 12;
@@ -385,18 +357,12 @@ impl<E> Measurements<E> {
         let data_xlsb = (data[5] as u32) >> 4;
         let temperature = data_msb | data_lsb | data_xlsb;
 
-        let data_msb = (data[6] as u32) << 8;
-        let data_lsb = data[7] as u32;
-        let humidity = data_msb | data_lsb;
-
         let temperature = Measurements::compensate_temperature(temperature, calibration)?;
         let pressure = Measurements::compensate_pressure(pressure, calibration)?;
-        let humidity = Measurements::compensate_humidity(humidity, calibration)?;
 
         Ok(Measurements {
             temperature,
             pressure,
-            humidity,
             _e: PhantomData,
         })
     }
@@ -453,117 +419,44 @@ impl<E> Measurements<E> {
         };
         Ok(pressure)
     }
-
-    fn compensate_humidity(
-        uncompensated: u32,
-        calibration: &mut CalibrationData,
-    ) -> Result<f32, Error<E>> {
-        let var1 = calibration.t_fine as f32 - 76800.0;
-        let var2 = calibration.dig_h4 as f32 * 64.0 + (calibration.dig_h5 as f32 / 16384.0) * var1;
-        let var3 = uncompensated as f32 - var2;
-        let var4 = calibration.dig_h2 as f32 / 65536.0;
-        let var5 = 1.0 + (calibration.dig_h3 as f32 / 67108864.0) * var1;
-        let var6 = 1.0 + (calibration.dig_h6 as f32 / 67108864.0) * var1 * var5;
-        let var6 = var3 * var4 * (var5 * var6);
-
-        let humidity = var6 * (1.0 - calibration.dig_h1 as f32 * var6 / 524288.0);
-        let humidity = if humidity < BME280_HUMIDITY_MIN {
-            BME280_HUMIDITY_MIN
-        } else if humidity > BME280_HUMIDITY_MAX {
-            BME280_HUMIDITY_MAX
-        } else {
-            humidity
-        };
-        Ok(humidity)
-    }
 }
 
-trait Interface {
+pub(crate) trait Interface {
     type Error;
 
-    fn read_register(&mut self, register: u8) -> Result<u8, Error<Self::Error>>;
+    async fn read_register(&mut self, register: u8) -> Result<u8, Error<Self::Error>>;
 
-    fn read_data(
+    async fn read_data(
         &mut self,
         register: u8,
-    ) -> Result<[u8; BME280_P_T_H_DATA_LEN], Error<Self::Error>>;
+    ) -> Result<[u8; BME280_P_T_DATA_LEN], Error<Self::Error>>;
 
-    fn read_pt_calib_data(
+    async fn read_pt_calib_data(
         &mut self,
         register: u8,
     ) -> Result<[u8; BME280_P_T_CALIB_DATA_LEN], Error<Self::Error>>;
 
-    fn read_h_calib_data(
-        &mut self,
-        register: u8,
-    ) -> Result<[u8; BME280_H_CALIB_DATA_LEN], Error<Self::Error>>;
-
-    fn write_register(&mut self, register: u8, payload: u8) -> Result<(), Error<Self::Error>>;
-}
-
-#[cfg(feature = "async")]
-trait AsyncInterface {
-    type Error;
-
-    type ReadRegisterFuture<'a>: Future<Output = Result<u8, Error<Self::Error>>>
-    where
-        Self: 'a;
-    fn read_register(&mut self, register: u8) -> Self::ReadRegisterFuture<'_>;
-
-    type ReadDataFuture<'a>: Future<
-        Output = Result<[u8; BME280_P_T_H_DATA_LEN], Error<Self::Error>>,
-    >
-    where
-        Self: 'a;
-    fn read_data(&mut self, register: u8) -> Self::ReadDataFuture<'_>;
-
-    type ReadPtCalibDataFuture<'a>: Future<
-        Output = Result<[u8; BME280_P_T_CALIB_DATA_LEN], Error<Self::Error>>,
-    >
-    where
-        Self: 'a;
-    fn read_pt_calib_data(&mut self, register: u8) -> Self::ReadPtCalibDataFuture<'_>;
-
-    type ReadHCalibDataFuture<'a>: Future<
-        Output = Result<[u8; BME280_H_CALIB_DATA_LEN], Error<Self::Error>>,
-    >
-    where
-        Self: 'a;
-    fn read_h_calib_data(&mut self, register: u8) -> Self::ReadHCalibDataFuture<'_>;
-
-    type WriteRegisterFuture<'a>: Future<Output = Result<(), Error<Self::Error>>>
-    where
-        Self: 'a;
-    fn write_register(&mut self, register: u8, payload: u8) -> Self::WriteRegisterFuture<'_>;
+    async fn write_register(&mut self, register: u8, payload: u8) -> Result<(), Error<Self::Error>>;
 }
 
 /// Common driver code for I2C and SPI interfaces
-#[maybe_async_cfg::maybe(
-    sync(feature = "sync", self = "BME280Common"),
-    async(feature = "async", keep_self)
-)]
 #[derive(Debug, Default)]
-struct AsyncBME280Common<I> {
+pub(crate) struct BME280Common<I> {
     /// Interface to the chip (either I2C or SPI)
     interface: I,
     /// calibration data
     calibration: Option<CalibrationData>,
 }
 
-#[maybe_async_cfg::maybe(
-    sync(
-        feature = "sync",
-        self = "BME280Common",
-        idents(AsyncInterface(sync = "Interface"), AsyncDelayNs(sync = "DelayNs"),)
-    ),
-    async(feature = "async", keep_self)
-)]
-impl<I> AsyncBME280Common<I>
+impl<I> BME280Common<I>
 where
-    I: AsyncInterface,
+    I: Interface,
 {
+    pub(crate) fn calibration(&self) -> Option<&CalibrationData> {
+        self.calibration.as_ref()
+    }
     /// Initializes the BME280, applying the given config.
-    async fn init<D: AsyncDelayNs>(
+    pub(crate) async fn init<D: DelayNs>(
         &mut self,
         delay: &mut D,
         config: Configuration,
@@ -583,7 +476,7 @@ where
         }
     }
 
-    async fn soft_reset<D: AsyncDelayNs>(&mut self, delay: &mut D) -> Result<(), Error<I::Error>> {
+    async fn soft_reset<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), Error<I::Error>> {
         self.interface
             .write_register(BME280_RESET_ADDR, BME280_SOFT_RESET_CMD)
             .await?;
@@ -596,15 +489,11 @@ where
             .interface
             .read_pt_calib_data(BME280_P_T_CALIB_DATA_ADDR)
             .await?;
-        let h_calib_data = self
-            .interface
-            .read_h_calib_data(BME280_H_CALIB_DATA_ADDR)
-            .await?;
-        self.calibration = Some(parse_calib_data(&pt_calib_data, &h_calib_data));
+        self.calibration = Some(parse_calib_data(&pt_calib_data));
         Ok(())
     }
 
-    async fn configure<D: AsyncDelayNs>(
+    async fn configure<D: DelayNs>(
         &mut self,
         delay: &mut D,
         config: Configuration,
@@ -614,15 +503,6 @@ where
             _ => self.soft_reset(delay).await?,
         };
 
-        self.interface
-            .write_register(
-                BME280_CTRL_HUM_ADDR,
-                config.humidity_oversampling.bits() & BME280_CTRL_HUM_MSK,
-            )
-            .await?;
-
-        // As per the datasheet, the ctrl_meas register needs to be written after
-        // the ctrl_hum register for changes to take effect.
         let data = self.interface.read_register(BME280_CTRL_MEAS_ADDR).await?;
         let data = set_bits!(
             data,
@@ -662,19 +542,20 @@ where
         }
     }
 
-    async fn forced<D: AsyncDelayNs>(&mut self, delay: &mut D) -> Result<(), Error<I::Error>> {
+    async fn forced<D: DelayNs>(&mut self, delay: &mut D) -> Result<(), Error<I::Error>> {
         self.set_mode(BME280_FORCED_MODE, delay).await
     }
 
-    async fn set_mode<D: AsyncDelayNs>(
+    async fn set_mode<D: DelayNs>(
         &mut self,
         mode: u8,
         delay: &mut D,
     ) -> Result<(), Error<I::Error>> {
-        match self.mode().await? {
-            SensorMode::Sleep => {}
-            _ => self.soft_reset(delay).await?,
-        };
+        // Only soft reset if switching from normal mode to ensure mode transition completes cleanly
+        if self.mode().await? == SensorMode::Normal {
+            self.soft_reset(delay).await?;
+        }
+
         let data = self.interface.read_register(BME280_PWR_CTRL_ADDR).await?;
         let data = set_bits!(data, BME280_SENSOR_MODE_MSK, 0, mode);
         self.interface
@@ -682,13 +563,27 @@ where
             .await
     }
 
-    /// Captures and processes sensor data for temperature, pressure, and humidity
-    async fn measure<D: AsyncDelayNs>(
+    /// Captures and processes sensor data for temperature and pressure
+    pub(crate) async fn measure<D: DelayNs>(
         &mut self,
         delay: &mut D,
     ) -> Result<Measurements<I::Error>, Error<I::Error>> {
+        // Trigger a single forced conversion
         self.forced(delay).await?;
-        delay.delay_ms(40).await;
+
+        // In forced mode, the BMP280 starts conversion shortly after the ctrl_meas write.
+        // Poll the STATUS register (0xF3) measuring[0] bit (bit 3).
+        // If measuring is still 1 (or if conversion hasn't finished), wait up to 50ms (50 x 1ms).
+        // After conversion finishes, the sensor automatically returns to sleep mode and
+        // transfers the results from internal ADC registers to 0xF7..0xFC.
+        for _ in 0..50 {
+            delay.delay_ms(1).await;
+            let status = self.interface.read_register(BME280_STATUS_ADDR).await?;
+            if (status & BME280_STATUS_MEASURING_MSK) == 0 {
+                break;
+            }
+        }
+
         let measurements = self.interface.read_data(BME280_DATA_ADDR).await?;
         match self.calibration.as_mut() {
             Some(calibration) => {
@@ -702,7 +597,6 @@ where
 
 fn parse_calib_data(
     pt_data: &[u8; BME280_P_T_CALIB_DATA_LEN],
-    h_data: &[u8; BME280_H_CALIB_DATA_LEN],
 ) -> CalibrationData {
     let dig_t1 = concat_bytes!(pt_data[1], pt_data[0]);
     let dig_t2 = concat_bytes!(pt_data[3], pt_data[2]) as i16;
@@ -716,12 +610,6 @@ fn parse_calib_data(
     let dig_p7 = concat_bytes!(pt_data[19], pt_data[18]) as i16;
     let dig_p8 = concat_bytes!(pt_data[21], pt_data[20]) as i16;
     let dig_p9 = concat_bytes!(pt_data[23], pt_data[22]) as i16;
-    let dig_h1 = pt_data[25];
-    let dig_h2 = concat_bytes!(h_data[1], h_data[0]) as i16;
-    let dig_h3 = h_data[2];
-    let dig_h4 = (h_data[3] as i8 as i16 * 16) | ((h_data[4] as i8 as i16) & 0x0F);
-    let dig_h5 = (h_data[5] as i8 as i16 * 16) | (((h_data[4] as i8 as i16) & 0xF0) >> 4);
-    let dig_h6 = h_data[6] as i8;
 
     CalibrationData {
         dig_t1,
@@ -736,12 +624,6 @@ fn parse_calib_data(
         dig_p7,
         dig_p8,
         dig_p9,
-        dig_h1,
-        dig_h2,
-        dig_h3,
-        dig_h4,
-        dig_h5,
-        dig_h6,
         t_fine: 0,
     }
 }
