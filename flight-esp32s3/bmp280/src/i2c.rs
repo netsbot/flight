@@ -34,8 +34,9 @@ const BME280_I2C_ADDR_SECONDARY: u8 = 0x77;
     async(feature = "async", keep_self)
 )]
 #[derive(Debug, Default)]
-pub struct AsyncBME280<I2C> {
+pub struct AsyncBME280<I2C, D> {
     common: AsyncBME280Common<I2CInterface<I2C>>,
+    delay: D,
 }
 
 #[maybe_async_cfg::maybe(
@@ -50,31 +51,32 @@ pub struct AsyncBME280<I2C> {
     ),
     async(feature = "async", keep_self)
 )]
-impl<I2C> AsyncBME280<I2C>
+impl<I2C, D> AsyncBME280<I2C, D>
 where
     I2C: AsyncI2c + ErrorType,
+    D: AsyncDelayNs,
 {
     /// Create a new BME280 struct using the primary I²C address `0x76` and initialize it
-    pub async fn new_primary<D: AsyncDelayNs>(
+    pub async fn new_primary(
         i2c: I2C,
-        delay: &mut D,
+        delay: D,
     ) -> Result<Self, Error<I2C::Error>> {
         Self::new(i2c, BME280_I2C_ADDR_PRIMARY, delay).await
     }
 
     /// Create a new BME280 struct using the secondary I²C address `0x77` and initialize it
-    pub async fn new_secondary<D: AsyncDelayNs>(
+    pub async fn new_secondary(
         i2c: I2C,
-        delay: &mut D,
+        delay: D,
     ) -> Result<Self, Error<I2C::Error>> {
         Self::new(i2c, BME280_I2C_ADDR_SECONDARY, delay).await
     }
 
     /// Create a new BME280 struct using a custom I²C address and initialize it with default config
-    pub async fn new<D: AsyncDelayNs>(
+    pub async fn new(
         i2c: I2C,
         address: u8,
-        delay: &mut D,
+        delay: D,
     ) -> Result<Self, Error<I2C::Error>> {
         Self::new_with_config(
             i2c,
@@ -90,37 +92,33 @@ where
     }
 
     /// Create a new BME280 struct using a custom I²C address and initialize it with custom config
-    pub async fn new_with_config<D: AsyncDelayNs>(
+    pub async fn new_with_config(
         i2c: I2C,
         address: u8,
-        delay: &mut D,
+        mut delay: D,
         config: Configuration,
     ) -> Result<Self, Error<I2C::Error>> {
-        let mut dev = Self {
-            common: AsyncBME280Common {
-                interface: I2CInterface { i2c, address },
-                calibration: None,
-            },
+        let mut common = AsyncBME280Common {
+            interface: I2CInterface { i2c, address },
+            calibration: None,
         };
-        dev.common.init(delay, config).await?;
-        Ok(dev)
+        common.init(&mut delay, config).await?;
+        Ok(Self { common, delay })
     }
 
     /// Re-initialize the sensor applying the given configuration.
-    pub async fn reconfigure<D: AsyncDelayNs>(
+    pub async fn reconfigure(
         &mut self,
-        delay: &mut D,
         config: Configuration,
     ) -> Result<(), Error<I2C::Error>> {
-        self.common.init(delay, config).await
+        self.common.init(&mut self.delay, config).await
     }
 
     /// Captures and processes sensor data for temperature, pressure, and humidity
-    pub async fn measure<D: AsyncDelayNs>(
+    pub async fn measure(
         &mut self,
-        delay: &mut D,
     ) -> Result<Measurements<I2C::Error>, Error<I2C::Error>> {
-        self.common.measure(delay).await
+        self.common.measure(&mut self.delay).await
     }
 }
 

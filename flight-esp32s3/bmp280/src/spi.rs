@@ -33,8 +33,9 @@ use super::{
     async(feature = "async", keep_self)
 )]
 #[derive(Debug, Default)]
-pub struct AsyncBmp280<SPI> {
+pub struct AsyncBmp280<SPI, D> {
     common: AsyncBME280Common<AsyncSPIInterface<SPI>>,
+    delay: D,
 }
 
 #[maybe_async_cfg::maybe(
@@ -51,15 +52,15 @@ pub struct AsyncBmp280<SPI> {
     ),
     async(feature = "async", keep_self)
 )]
-impl<SPI, SPIE> AsyncBmp280<SPI>
+impl<SPI, SPIE, D> AsyncBmp280<SPI, D>
 where
     SPI: AsyncSpiDevice<Error = SPIE>,
-    // SPI::Buf: AsyncSpiBus<u8>,
+    D: AsyncDelayNs,
 {
     /// Create a new Bmp280 struct and initialize it with default configuration
-    pub async fn new<D: AsyncDelayNs>(
+    pub async fn new(
         spi: SPI,
-        delay: &mut D,
+        delay: D,
     ) -> Result<Self, Error<SPIError<SPIE>>> {
         Self::new_with_config(
             spi,
@@ -74,36 +75,32 @@ where
     }
 
     /// Create a new Bmp280 struct and initialize it with custom configuration
-    pub async fn new_with_config<D: AsyncDelayNs>(
+    pub async fn new_with_config(
         spi: SPI,
-        delay: &mut D,
+        mut delay: D,
         config: Configuration,
     ) -> Result<Self, Error<SPIError<SPIE>>> {
-        let mut dev = Self {
-            common: AsyncBME280Common {
-                interface: AsyncSPIInterface { spi },
-                calibration: None,
-            },
+        let mut common = AsyncBME280Common {
+            interface: AsyncSPIInterface { spi },
+            calibration: None,
         };
-        dev.common.init(delay, config).await?;
-        Ok(dev)
+        common.init(&mut delay, config).await?;
+        Ok(Self { common, delay })
     }
 
     /// Re-initialize the sensor applying the given configuration.
-    pub async fn reconfigure<D: AsyncDelayNs>(
+    pub async fn reconfigure(
         &mut self,
-        delay: &mut D,
         config: Configuration,
     ) -> Result<(), Error<SPIError<SPIE>>> {
-        self.common.init(delay, config).await
+        self.common.init(&mut self.delay, config).await
     }
 
     /// Captures and processes sensor data for temperature, pressure, and humidity
-    pub async fn measure<D: AsyncDelayNs>(
+    pub async fn measure(
         &mut self,
-        delay: &mut D,
     ) -> Result<Measurements<SPIError<SPIE>>, Error<SPIError<SPIE>>> {
-        self.common.measure(delay).await
+        self.common.measure(&mut self.delay).await
     }
 }
 

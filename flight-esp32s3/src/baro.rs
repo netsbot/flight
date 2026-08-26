@@ -3,19 +3,19 @@ use bmp280::{Configuration, Oversampling::Oversampling4X, spi::Bmp280};
 use esp_hal::delay::Delay;
 
 pub(crate) struct BoardBaro<SPI: embedded_hal::spi::SpiDevice> {
-    inner: Bmp280<SPI>,
+    inner: Bmp280<SPI, Delay>,
 }
 
 impl<SPI: embedded_hal::spi::SpiDevice> BoardBaro<SPI> {
     pub fn new(spi_device: SPI) -> Self {
         let config = Configuration::default().with_pressure_oversampling(Oversampling4X);
-        let baro = Bmp280::new_with_config(spi_device, &mut Delay::new(), config).unwrap();
+        let baro = Bmp280::new_with_config(spi_device, Delay::new(), config).unwrap();
 
         Self { inner: baro }
     }
 
     pub fn read_pressure(&mut self) -> f32 {
-        let data = self.inner.measure(&mut Delay::new()).unwrap();
+        let data = self.inner.measure().unwrap();
         data.pressure
     }
 
