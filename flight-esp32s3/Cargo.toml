@@ -6,7 +6,7 @@ version = "0.1.0"
 
 #[[bin]]
 #name = "flight-esp32s3"
-#path = "src/main.rs"
+#path = "src/drone"
 #harness = false
 
 #[lib]
@@ -20,12 +20,13 @@ esp-bootloader-esp-idf = { version = "0.5.0", features = ["defmt", "esp32s3"] }
 critical-section = "1.2.0"
 panic-rtt-target = { version = "0.2.0", features = ["defmt"] }
 rtt-target = { version = "0.6.2", features = ["defmt"] }
+xtensa-lx = "0.13.0"
 mpu9250 = { path = "mpu9250" }
 embedded-hal-bus = "0.3.0"
 nalgebra = { version = "0.35.0", features = ["bytemuck", "convert-bytemuck", "defmt"], default-features = false }
 static_cell = "2.1.1"
 embedded-profiling = { version = "0.3.0", features = ["proc-macros"] }
-esp-rtos = { version = "0.3.0", features = ["esp32s3", "embassy"] }
+esp-rtos = { version = "0.3.0", features = ["esp32s3", "embassy", "esp-radio"] }
 embassy-executor = "0.10.0"
 flight-core = { path = "../flight-core" }
 embassy-sync = "0.8.0"
@@ -34,6 +35,10 @@ embedded-hal = "1.0.0"
 bmp280 = { path = "bmp280" }
 embedded-hal-async = "1.0.0"
 embassy-embedded-hal = "0.6.0"
+esp-radio = { version = "1.0.0-beta.0", features = ["esp32s3", "esp-now", "esp-alloc", "unstable"], default-features = false }
+esp-alloc = { version = "0.10.0", features = ["esp32s3"] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+postcard = "1.1"
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]
