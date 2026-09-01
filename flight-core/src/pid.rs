@@ -45,7 +45,7 @@ impl PidController {
         self.initialized = false;
     }
 
-    pub fn update(&mut self, measurement: f32, setpoint: f32, dt: f32) -> f32 {
+    pub fn step(&mut self, measurement: f32, setpoint: f32, dt: f32) -> f32 {
         if dt <= 0.0 {
             return 0.0;
         }

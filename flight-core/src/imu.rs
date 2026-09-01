@@ -1,9 +1,10 @@
+use core::ops::{Add, AddAssign};
 use defmt::Format;
 use nalgebra::Vector3;
 
 #[derive(Format, Clone, Copy, Debug)]
 pub struct ImuFrame {
-    pub accel_g: Vector3<f32>,
+    pub accel_ms2: Vector3<f32>,
     pub gyro_rad_s: Vector3<f32>,
     pub magnetometer: Option<Vector3<f32>>,
 }
@@ -34,9 +35,11 @@ impl AccumulatedImu {
         dt: 0.0,
         samples: 0,
     };
-}
 
-pub trait ImuSource<C = ()> {
-    type Error: core::fmt::Debug;
-    fn read(&mut self, _ctx: &C) -> Result<ImuFrame, Self::Error>;
+    pub fn add_sample(&mut self, frame: ImuFrame, dt: f32) {
+        self.delta_angle += frame.gyro_rad_s * dt;
+        self.delta_velocity += frame.accel_ms2 * dt;
+        self.dt += dt;
+        self.samples += 1;
+    }
 }

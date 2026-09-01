@@ -107,7 +107,7 @@ impl Ahrs {
             imu_frame.gyro_rad_s
         };
 
-        self.accel = imu_frame.accel_g;
+        self.accel = imu_frame.accel_ms2;
 
         if corrected_gyro.x.abs() > self.config.gyro_range()
             || corrected_gyro.y.abs() > self.config.gyro_range()
@@ -133,18 +133,17 @@ impl Ahrs {
         let mut half_accel_feedback = Vector3::zeros();
         self.accel_ignored = true;
 
-        // Reject accel when magnitude deviates >10% from 1 g (9.81 m/s²).
+        // Reject accel when magnitude deviates >10% from 1 g (GRAVITY_MSS).
         // Thrust adds directly to az so the vector direction stays near-vertical
-        // (angle rejection misses it) while the magnitude spikes well above 9.81.
-        const GRAVITY: f32 = 9.81;
+        // (angle rejection misses it) while the magnitude spikes well above 1g.
         const ACCEL_MAGNITUDE_TOLERANCE: f32 = 0.1; // 10%
-        let accel_magnitude = imu_frame.accel_g.norm();
+        let accel_magnitude = imu_frame.accel_ms2.norm();
         let accel_magnitude_ok =
-            (accel_magnitude - GRAVITY).abs() <= GRAVITY * ACCEL_MAGNITUDE_TOLERANCE;
+            (accel_magnitude - crate::GRAVITY_MSS).abs() <= crate::GRAVITY_MSS * ACCEL_MAGNITUDE_TOLERANCE;
 
-        if accel_magnitude_ok && imu_frame.accel_g != Vector3::zeros() {
+        if accel_magnitude_ok && imu_frame.accel_ms2 != Vector3::zeros() {
             self.half_accel_feedback =
-                Self::feedback(imu_frame.accel_g.normalize(), self.half_gravity);
+                Self::feedback(imu_frame.accel_ms2.normalize(), self.half_gravity);
 
             if self.startup
                 || self.half_accel_feedback.norm_squared() <= self.config.accel_rejection()
@@ -208,7 +207,7 @@ impl Ahrs {
             }
         }
 
-        let half_gyro = corrected_gyro.scale(0.5f32);
+        let half_gyro = corrected_gyro.scale(0.5);
         let adjusted_half_gyro =
             half_gyro + (half_accel_feedback + half_magnetometer_feedback).scale(self.ramped_gain);
 
@@ -231,7 +230,7 @@ impl Ahrs {
         let avg_accel = accum.delta_velocity / accum.dt;
 
         let frame = ImuFrame {
-            accel_g: avg_accel,
+            accel_ms2: avg_accel,
             gyro_rad_s: avg_gyro,
             magnetometer: None,
         };
@@ -284,6 +283,21 @@ impl Ahrs {
 
     pub fn is_magnetometer_ignored(&self) -> bool {
         self.magnetometer_ignored
+    }
+
+    /// Computes the linear upward acceleration in world frame in m/s² (with gravity removed).
+    /// Assumes self.accel is in m/s². Returns ~0.0 m/s² when resting or in steady hover.
+    pub fn linear_acceleration_z_world(&self) -> f32 {
+        let accel_world = self.quaternion.transform_vector(&self.accel);
+        accel_world.z - crate::GRAVITY_MSS
+    }
+
+    /// Computes the full 3D linear acceleration in world frame in m/s² (with 1g gravity removed from Z).
+    /// Assumes self.accel is in m/s².
+    pub fn linear_acceleration_world(&self) -> Vector3<f32> {
+        let mut a_world = self.quaternion.transform_vector(&self.accel);
+        a_world.z -= crate::GRAVITY_MSS;
+        a_world
     }
 
     #[inline]

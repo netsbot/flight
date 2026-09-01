@@ -1,12 +1,24 @@
 #![no_std]
-
-mod altitude_estimator;
+pub mod altitude_estimator;
 pub mod fusion;
 pub mod imu;
 pub mod pid;
+pub mod comms;
+
+/// Standard acceleration due to gravity in m/s² (ISO 80000-3)
+pub const GRAVITY_MSS: f32 = 9.80665;
 
 use crate::pid::PidController;
 use nalgebra::Vector3;
+
+#[derive(Debug, Clone, Copy)]
+pub struct DroneState {
+    pub attitude: Vector3<f32>,
+    pub altitude: f32,
+    pub velocity: f32,
+    pub accel_bias: f32,
+    pub accel_z: f32,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct MotorOutputs {
@@ -23,11 +35,11 @@ pub struct ControllerInput {
     pub yaw: f32,
 }
 
-pub struct RateController {
+pub struct ControllerBundle {
     pid_rate: (PidController, PidController, PidController), // roll, pitch, yaw
 }
 
-impl Default for RateController {
+impl Default for ControllerBundle {
     fn default() -> Self {
         Self {
             pid_rate: (
@@ -39,8 +51,12 @@ impl Default for RateController {
     }
 }
 
-impl RateController {
+impl ControllerBundle {
     pub fn new() -> Self {
+        Self::new_rate()
+    }
+
+    pub fn new_rate() -> Self {
         Self {
             pid_rate: (
                 PidController::new(2.5, 0.05, 0.18, 60.0, 5.0), // Roll rate PID
@@ -50,19 +66,28 @@ impl RateController {
         }
     }
 
-    /// Runs at 4 kHz / 8 kHz on Core 1
-    pub fn step(
-        &mut self,
-        target_rate: Vector3<f32>,
-        gyro: Vector3<f32>,
-        throttle: f32,
-        dt: f32,
-    ) -> MotorOutputs {
-        let roll_cmd = self.pid_rate.0.update(gyro.x, target_rate.x, dt);
-        let pitch_cmd = self.pid_rate.1.update(gyro.y, target_rate.y, dt);
-        let yaw_cmd = self.pid_rate.2.update(gyro.z, target_rate.z, dt);
+    pub fn new_attitude() -> Self {
+        Self {
+            pid_rate: (
+                PidController::new(4.5, 0.0, 0.0, 0.0, 0.0), // Roll angle P controller
+                PidController::new(4.5, 0.0, 0.0, 0.0, 0.0), // Pitch angle P controller
+                PidController::new(2.5, 0.0, 0.0, 0.0, 0.0), // Yaw angle P controller
+            ),
+        }
+    }
 
-        mix(throttle, roll_cmd, pitch_cmd, yaw_cmd)
+    pub fn with_pids(roll: PidController, pitch: PidController, yaw: PidController) -> Self {
+        Self {
+            pid_rate: (roll, pitch, yaw),
+        }
+    }
+
+    pub fn step(&mut self, setpoint: Vector3<f32>, current: Vector3<f32>, dt: f32) -> Vector3<f32> {
+        let roll_cmd = self.pid_rate.0.step(current.x, setpoint.x, dt);
+        let pitch_cmd = self.pid_rate.1.step(current.y, setpoint.y, dt);
+        let yaw_cmd = self.pid_rate.2.step(current.z, setpoint.z, dt);
+
+        Vector3::new(roll_cmd, pitch_cmd, yaw_cmd)
     }
 }
 
