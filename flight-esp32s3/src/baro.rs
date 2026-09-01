@@ -9,9 +9,8 @@ pub(crate) struct BoardBaro<SPI: embedded_hal_async::spi::SpiDevice> {
 impl<SPI: embedded_hal_async::spi::SpiDevice> BoardBaro<SPI> {
     pub async fn new(spi_device: SPI) -> Self {
         let config = Configuration::default()
-            .with_temperature_oversampling(Oversampling::Oversampling2X)
-            .with_pressure_oversampling(Oversampling::Oversampling16X)
-            .with_iir_filter(IIRFilter::Coefficient16);
+            .with_pressure_oversampling(Oversampling::Oversampling4X)
+            .with_iir_filter(IIRFilter::Coefficient2);
         let baro = Bmp280::new_with_config(spi_device, Delay, config)
             .await
             .unwrap();
@@ -24,7 +23,7 @@ impl<SPI: embedded_hal_async::spi::SpiDevice> BoardBaro<SPI> {
         data.pressure
     }
 
-    pub async fn read_altitude_msl(&mut self, qnh: f32) -> f32 {
+    pub async fn read_altitude(&mut self, qnh: f32) -> f32 {
         const SCALE_FACTOR: f32 = 44330.77;
         const EXPONENT: f32 = 0.190263;
 

@@ -19,7 +19,7 @@ impl<SPI: embedded_hal::spi::SpiDevice> BoardImu<SPI> {
 
         let mut mpu = Mpu9250::imu(spi_device, &mut delay, &mut config).unwrap();
 
-        mpu.interrupt_config(InterruptConfig::INT_ANYRD_CLEAR)
+        mpu.interrupt_config(InterruptConfig::INT_ANYRD_CLEAR | InterruptConfig::LATCH_INT_EN)
             .expect("Failed to configure interrupt config");
 
         mpu.enable_interrupts(InterruptEnable::RAW_RDY_EN)
@@ -35,7 +35,7 @@ impl<SPI: embedded_hal::spi::SpiDevice> BoardImu<SPI> {
         let data = self.inner.all::<[f32; 3]>().unwrap();
 
         ImuFrame {
-            accel_g: nalgebra::Vector3::new(data.accel[0], data.accel[1], data.accel[2]),
+            accel_ms2: nalgebra::Vector3::new(data.accel[0], data.accel[1], data.accel[2]),
             gyro_rad_s: nalgebra::Vector3::new(data.gyro[0], data.gyro[1], data.gyro[2]),
             magnetometer: None,
         }

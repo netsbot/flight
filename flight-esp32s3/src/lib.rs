@@ -1,9 +1,9 @@
-#![feature(asm_experimental_arch)]
 #![no_std]
 
 use core::{sync::atomic::AtomicI32, time::Duration};
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, watch::Watch};
+use flight_core::DroneState;
 use flight_core::imu::AccumulatedImu;
 
 mod baro;
@@ -11,10 +11,11 @@ mod imu;
 pub mod interrupt_tasks;
 pub mod profiler;
 pub mod tasks;
+pub mod comms;
 
 static THROTTLE: AtomicI32 = AtomicI32::new(0);
-static AHRS_CHANNEL: Channel<CriticalSectionRawMutex, AccumulatedImu, 8> = Channel::new();
-static ATTITUDE_WATCH: Watch<CriticalSectionRawMutex, nalgebra::Vector3<f32>, 2> = Watch::new();
+static IMU_DATA_CHANNEL: Channel<CriticalSectionRawMutex, AccumulatedImu, 8> = Channel::new();
+static STATE_WATCH: Watch<CriticalSectionRawMutex, DroneState, 2> = Watch::new();
 
 #[derive(Copy, Clone)]
 pub struct CycleInstant(u32);
@@ -25,11 +26,7 @@ impl CycleInstant {
     /// Returns the current hardware cycle instant.
     #[inline(always)]
     pub fn now() -> Self {
-        let count: u32;
-        unsafe {
-            core::arch::asm!("rsr.ccount {0}", out(reg) count);
-        }
-        Self(count)
+        Self(xtensa_lx::timer::get_cycle_count())
     }
 
     /// Returns the raw CPU cycle difference since an earlier instant.

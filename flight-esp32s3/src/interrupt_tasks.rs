@@ -1,5 +1,7 @@
 use core::cell::RefCell;
 
+use defmt::println;
+use embedded_hal_async::digital::Wait;
 use embedded_hal_bus::spi::RefCellDevice;
 use esp_hal::{
     Blocking,
@@ -14,7 +16,7 @@ use esp_hal::{
 use flight_core::imu::AccumulatedImu;
 use static_cell::StaticCell;
 
-use crate::{AHRS_CHANNEL, CycleInstant, imu::BoardImu};
+use crate::{CycleInstant, IMU_DATA_CHANNEL, imu::BoardImu};
 
 #[embassy_executor::task]
 pub async fn interrupt_main(
@@ -53,12 +55,11 @@ async fn imu_task(
     let mut last_imu_read = CycleInstant::now();
     let mut accum = AccumulatedImu::ZERO;
 
-    // Clear initial interrupt latch
-    let _ = imu.read();
-
     loop {
-        // Await hardware rising edge interrupt
-        mpu_int.wait_for_high().await;
+        // Await data-ready hardware interrupt without startup edge deadlock
+        if mpu_int.is_low() {
+            mpu_int.wait_for_high().await;
+        }
 
         let data = imu.read();
 
@@ -66,7 +67,7 @@ async fn imu_task(
 
         // 1. Accumulate pre-integration delta angles and delta velocities
         accum.delta_angle += data.gyro_rad_s * dt;
-        accum.delta_velocity += data.accel_g * dt;
+        accum.delta_velocity += data.accel_ms2 * dt;
         accum.dt += dt;
         accum.samples += 1;
 
@@ -79,7 +80,7 @@ async fn imu_task(
 
         // Send snapshot every N samples or when enough time elapsed (~5ms / 200Hz)
         if accum.samples >= 5 || accum.dt >= 0.005 {
-            let _ = AHRS_CHANNEL.try_send(accum);
+            let _ = IMU_DATA_CHANNEL.try_send(accum);
             accum = AccumulatedImu::ZERO;
         }
     }

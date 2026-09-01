@@ -6,8 +6,8 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::Mutex;
+use defmt::info;
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use esp_hal::{
     Async,
     clock::CpuClock,
@@ -20,22 +20,26 @@ use esp_hal::{
     time::Rate,
     timer::timg::TimerGroup,
 };
+use esp_radio::wifi::{ControllerConfig, WifiController};
 use esp_rtos::embassy::InterruptExecutor;
 use flight_esp32s3::{
     interrupt_tasks::interrupt_main,
     profiler::Esp32Profiler,
-    tasks::{ahrs_task, telemetry_task, baro_task},
+    tasks::{baro_task, drone_state_task, listen_for_commands, telemetry_task},
 };
 use panic_rtt_target as _;
 use static_cell::StaticCell;
 
 static INTERRUPT_EXECUTOR: StaticCell<InterruptExecutor<1>> = StaticCell::new();
 static SHARED_SPI: StaticCell<Mutex<NoopRawMutex, Spi<'static, Async>>> = StaticCell::new();
+static WIFI_CONTROLLER: StaticCell<WifiController> = StaticCell::new();
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
 #[esp_rtos::main]
 async fn main(spawner: embassy_executor::Spawner) {
+    esp_alloc::heap_allocator!(size: 64 * 1024);
+
     rtt_target::rtt_init_defmt!();
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
@@ -44,6 +48,9 @@ async fn main(spawner: embassy_executor::Spawner) {
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, sw_ints.software_interrupt0);
+
+    let my_mac = esp_hal::efuse::base_mac_address();
+    info!("my mac addr: {}", my_mac);
 
     let mpu_int = Input::new(
         peripherals.GPIO11,
@@ -76,12 +83,16 @@ async fn main(spawner: embassy_executor::Spawner) {
 
     let cs_baro = Output::new(peripherals.GPIO6, Level::High, OutputConfig::default());
 
+    let wifi_controller = WIFI_CONTROLLER
+        .init(WifiController::new(peripherals.WIFI, ControllerConfig::default()).unwrap());
+
     critical_section::with(|_cs| unsafe {
         embedded_profiling::set_profiler(&Esp32Profiler).unwrap();
     });
 
     imu_spawner.spawn(interrupt_main(imu_spi, cs_imu, mpu_int).unwrap());
-    spawner.spawn(ahrs_task().unwrap());
-    spawner.spawn(telemetry_task().unwrap());
-    spawner.spawn(baro_task(shared_spi, cs_baro).unwrap())
+    spawner.spawn(drone_state_task().unwrap());
+    // spawner.spawn(telemetry_task().unwrap());
+    spawner.spawn(baro_task(shared_spi, cs_baro).unwrap());
+    spawner.spawn(listen_for_commands(wifi_controller.esp_now()).unwrap());
 }
