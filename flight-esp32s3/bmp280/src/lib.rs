@@ -117,6 +117,17 @@ const BME280_FILTER_COEFF_4: u8 = 0x02;
 const BME280_FILTER_COEFF_8: u8 = 0x03;
 const BME280_FILTER_COEFF_16: u8 = 0x04;
 
+const BME280_STANDBY_MSK: u8 = 0xE0;
+const BME280_STANDBY_POS: u8 = 0x05;
+const BME280_STANDBY_0_5_MS: u8 = 0x00;
+const BME280_STANDBY_62_5_MS: u8 = 0x01;
+const BME280_STANDBY_125_MS: u8 = 0x02;
+const BME280_STANDBY_250_MS: u8 = 0x03;
+const BME280_STANDBY_500_MS: u8 = 0x04;
+const BME280_STANDBY_1000_MS: u8 = 0x05;
+const BME280_STANDBY_2000_MS: u8 = 0x06;
+const BME280_STANDBY_4000_MS: u8 = 0x07;
+
 const BME280_OVERSAMPLING_1X: u8 = 0x01;
 const BME280_OVERSAMPLING_2X: u8 = 0x02;
 const BME280_OVERSAMPLING_4X: u8 = 0x03;
@@ -278,14 +289,55 @@ impl IIRFilter {
     }
 }
 
+/// Standby time settings for normal mode.
+/// Controls inactive duration `t_sb` in register 0xF5 (bits [7:5]).
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "with_defmt", derive(defmt::Format))]
+pub enum StandbyTime {
+    /// 0.5 ms
+    #[default]
+    Standby0_5Ms,
+    /// 62.5 ms
+    Standby62_5Ms,
+    /// 125 ms
+    Standby125Ms,
+    /// 250 ms
+    Standby250Ms,
+    /// 500 ms
+    Standby500Ms,
+    /// 1000 ms
+    Standby1000Ms,
+    /// 2000 ms
+    Standby2000Ms,
+    /// 4000 ms
+    Standby4000Ms,
+}
+
+impl StandbyTime {
+    fn bits(&self) -> u8 {
+        match self {
+            StandbyTime::Standby0_5Ms => BME280_STANDBY_0_5_MS,
+            StandbyTime::Standby62_5Ms => BME280_STANDBY_62_5_MS,
+            StandbyTime::Standby125Ms => BME280_STANDBY_125_MS,
+            StandbyTime::Standby250Ms => BME280_STANDBY_250_MS,
+            StandbyTime::Standby500Ms => BME280_STANDBY_500_MS,
+            StandbyTime::Standby1000Ms => BME280_STANDBY_1000_MS,
+            StandbyTime::Standby2000Ms => BME280_STANDBY_2000_MS,
+            StandbyTime::Standby4000Ms => BME280_STANDBY_4000_MS,
+        }
+    }
+}
+
 /// Configuration values for the BME280 sensor.
-/// The default sets all oversampling settings to 1x and disables the IIR filter.
+/// The default sets all oversampling settings to 1x, disables the IIR filter,
+/// and sets normal-mode standby time to 0.5 ms.
 #[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "with_defmt", derive(defmt::Format))]
 pub struct Configuration {
     temperature_oversampling: Oversampling,
     pressure_oversampling: Oversampling,
     iir_filter: IIRFilter,
+    standby_time: StandbyTime,
 }
 
 impl Configuration {
@@ -304,6 +356,12 @@ impl Configuration {
     /// Sets the IIR filter setting.
     pub fn with_iir_filter(mut self, filter: IIRFilter) -> Self {
         self.iir_filter = filter;
+        self
+    }
+
+    /// Sets the standby time for normal mode.
+    pub fn with_standby_time(mut self, standby_time: StandbyTime) -> Self {
+        self.standby_time = standby_time;
         self
     }
 
@@ -549,6 +607,12 @@ where
             BME280_FILTER_MSK,
             BME280_FILTER_POS,
             config.iir_filter.bits()
+        );
+        let data = set_bits!(
+            data,
+            BME280_STANDBY_MSK,
+            BME280_STANDBY_POS,
+            config.standby_time.bits()
         );
         self.interface
             .write_register(BME280_CONFIG_ADDR, data)
