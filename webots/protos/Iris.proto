@@ -137,10 +137,16 @@ PROTO Iris [
         }
       }
       Accelerometer {
-      }
-      GPS {
+        resolution 0.004788
+        lookupTable [ -156.91 -156.91 0.35, 156.91 156.91 0.35 ]
       }
       Gyro {
+        resolution 0.001064
+        lookupTable [ -34.906 -34.906 0.008, 34.906 34.906 0.008 ]
+      }
+      Altimeter {
+        lookupTable [ 0 0 0.10, 1000 1000 0.10 ]     # BMP280 with internal IIR filter
+        resolution 0.015                             # 0.18 Pa resolution (1.5 cm)
       }
       InertialUnit {
       }

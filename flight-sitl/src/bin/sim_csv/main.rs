@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         prev_time = Some(data.sim_time);
 
         let frame = ImuFrame {
-            accel_g: data.accel,
+            accel_ms2: data.accel,
             gyro_rad_s: data.gyro,
             magnetometer: None,
         };
