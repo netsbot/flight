@@ -39,6 +39,8 @@ esp-radio = { version = "1.0.0-beta.0", features = ["esp32s3", "esp-now", "esp-a
 esp-alloc = { version = "0.10.0", features = ["esp32s3"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 postcard = "1.1"
+esp-println = {version = "0.18.0", features = ["esp32s3"]}
+dshot-frame = {version = "0.4.0"}
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]

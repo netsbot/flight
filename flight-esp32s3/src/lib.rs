@@ -12,6 +12,7 @@ pub mod interrupt_tasks;
 pub mod profiler;
 pub mod tasks;
 pub mod comms;
+pub mod dshot;
 
 static THROTTLE: AtomicI32 = AtomicI32::new(0);
 static IMU_DATA_CHANNEL: Channel<CriticalSectionRawMutex, AccumulatedImu, 8> = Channel::new();
