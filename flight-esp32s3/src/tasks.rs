@@ -1,4 +1,6 @@
-use defmt::{info, println};
+use crate::comms::BoardRx;
+use crate::{IMU_DATA_CHANNEL, STATE_WATCH, baro::BoardBaro};
+use defmt::println;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_sync::{
     blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex},
@@ -8,10 +10,8 @@ use embassy_sync::{
 use embassy_time::{Duration, Ticker};
 use esp_hal::{Async, gpio::Output, spi::master::Spi};
 use esp_radio::esp_now::EspNow;
-use flight_core::{DroneState, altitude_estimator, fusion, fusion::AhrsConfig, imu::ImuFrame};
 use flight_core::comms::Receiver;
-use crate::{IMU_DATA_CHANNEL, STATE_WATCH, baro::BoardBaro};
-use crate::comms::BoardRx;
+use flight_core::{DroneState, altitude_estimator, fusion, fusion::AhrsConfig, imu::ImuFrame};
 
 static BARO_CHANNEL: Channel<CriticalSectionRawMutex, f32, 4> = Channel::new();
 
@@ -118,6 +118,6 @@ pub async fn listen_for_commands(esp_now: EspNow<'static>) {
     
     loop {
         let data = board_rx.receive().await.unwrap();
-        info!("{}", data);
+        esp_println::println!("{:?}", data);
     }
 }

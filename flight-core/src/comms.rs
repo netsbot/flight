@@ -6,6 +6,7 @@ use thiserror::Error;
 pub enum Command {
     Altitude(f32),
     Attitude(Vector3<f32>),
+    Time(u32),
 }
 
 #[derive(Error, Debug)]

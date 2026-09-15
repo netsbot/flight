@@ -32,6 +32,8 @@ impl<'a> Receiver for BoardRx<'a> {
                 continue;
             };
 
+            esp_println::println!("{}", r.info.rx_control.rssi);
+
             return Ok(command);
         }
     }
@@ -129,7 +131,7 @@ impl<'a> Sender for BoardTx<'a, PeerAdded> {
         self.tx
             .send_async(&self.target_mac, serialized)
             .await
-            .unwrap();
+            .map_err(|_| CommsError::Io)?;
 
         Ok(())
     }

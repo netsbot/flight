@@ -6,13 +6,14 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use defmt::{info, println};
-use embassy_time::{Duration, Ticker};
+use defmt::info;
+use embassy_time::{Duration, Instant, Ticker};
+use esp_alloc::export::enumset::enum_set;
 use esp_hal::{
     clock::CpuClock, interrupt::software::SoftwareInterruptControl, timer::timg::TimerGroup,
 };
-use esp_radio::wifi::{ControllerConfig, WifiController};
-use flight_core::comms::{Command, Sender};
+use esp_radio::wifi::{ControllerConfig, Protocol, Protocols, WifiController};
+use flight_core::comms::{Command, Command::Time, Sender};
 use flight_esp32s3::comms::BoardTx;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
@@ -21,6 +22,10 @@ static WIFI_CONTROLLER: StaticCell<WifiController> = StaticCell::new();
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+#[allow(
+    clippy::large_stack_frames,
+    reason = "it's not unusual to allocate larger buffers etc. in main"
+)]
 #[esp_rtos::main]
 async fn main(spawner: embassy_executor::Spawner) {
     esp_alloc::heap_allocator!(size: 64 * 1024);
@@ -36,8 +41,14 @@ async fn main(spawner: embassy_executor::Spawner) {
     let my_mac = esp_hal::efuse::base_mac_address();
     info!("my mac addr: {}", my_mac);
 
-    let wifi_controller = WIFI_CONTROLLER
-        .init(WifiController::new(peripherals.WIFI, ControllerConfig::default()).unwrap());
+    let wifi_controller = {
+        let controller = WIFI_CONTROLLER
+            .init(WifiController::new(peripherals.WIFI, ControllerConfig::default()).unwrap());
+        controller
+            .set_protocols(Protocols::default().with_2_4(enum_set!(Protocol::LR)))
+            .unwrap();
+        controller
+    };
 
     let esp_now = wifi_controller.esp_now();
     let (manager, tx, _rx) = esp_now.split();
@@ -48,10 +59,15 @@ async fn main(spawner: embassy_executor::Spawner) {
         .add_peer(&manager, Some(10))
         .unwrap();
 
-    let mut ticker = Ticker::every(Duration::from_hz(20));
+    let mut ticker = Ticker::every(Duration::from_hz(1));
+
+    let time = Instant::now();
 
     loop {
-        tx.send(Command::Altitude(100.0)).await.unwrap();
+        let time = Duration::from_nanos(Instant::now().as_nanos() - time.as_nanos());
+        match tx.send(Time(time.as_secs() as u32)).await {
+            Ok(_) | Err(_) => {}
+        }
         ticker.next().await;
     }
 }

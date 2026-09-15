@@ -8,11 +8,13 @@
 
 use defmt::info;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
+use esp_alloc::export::enumset::enum_set;
 use esp_hal::{
     Async,
     clock::CpuClock,
     gpio::{Input, InputConfig, Level, Output, OutputConfig},
     interrupt::{Priority, software::SoftwareInterruptControl},
+    rmt,
     spi::{
         Mode,
         master::{Config, Spi},
@@ -20,9 +22,10 @@ use esp_hal::{
     time::Rate,
     timer::timg::TimerGroup,
 };
-use esp_radio::wifi::{ControllerConfig, WifiController};
+use esp_radio::wifi::{ControllerConfig, Protocol, Protocols, WifiController};
 use esp_rtos::embassy::InterruptExecutor;
 use flight_esp32s3::{
+    dshot::{BoardDshot, Dshot300},
     interrupt_tasks::interrupt_main,
     profiler::Esp32Profiler,
     tasks::{baro_task, drone_state_task, listen_for_commands, telemetry_task},
@@ -36,6 +39,10 @@ static WIFI_CONTROLLER: StaticCell<WifiController> = StaticCell::new();
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+#[allow(
+    clippy::large_stack_frames,
+    reason = "it's not unusual to allocate larger buffers etc. in main"
+)]
 #[esp_rtos::main]
 async fn main(spawner: embassy_executor::Spawner) {
     esp_alloc::heap_allocator!(size: 64 * 1024);
@@ -83,8 +90,14 @@ async fn main(spawner: embassy_executor::Spawner) {
 
     let cs_baro = Output::new(peripherals.GPIO6, Level::High, OutputConfig::default());
 
-    let wifi_controller = WIFI_CONTROLLER
-        .init(WifiController::new(peripherals.WIFI, ControllerConfig::default()).unwrap());
+    let wifi_controller = {
+        let controller = WIFI_CONTROLLER
+            .init(WifiController::new(peripherals.WIFI, ControllerConfig::default()).unwrap());
+        controller
+            .set_protocols(Protocols::default().with_2_4(enum_set!(Protocol::LR)))
+            .unwrap();
+        controller
+    };
 
     critical_section::with(|_cs| unsafe {
         embedded_profiling::set_profiler(&Esp32Profiler).unwrap();
@@ -92,7 +105,7 @@ async fn main(spawner: embassy_executor::Spawner) {
 
     imu_spawner.spawn(interrupt_main(imu_spi, cs_imu, mpu_int).unwrap());
     spawner.spawn(drone_state_task().unwrap());
-    // spawner.spawn(telemetry_task().unwrap());
+    spawner.spawn(telemetry_task().unwrap());
     spawner.spawn(baro_task(shared_spi, cs_baro).unwrap());
     spawner.spawn(listen_for_commands(wifi_controller.esp_now()).unwrap());
 }
