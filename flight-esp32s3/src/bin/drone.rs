@@ -25,10 +25,12 @@ use esp_hal::{
 use esp_radio::wifi::{ControllerConfig, Protocol, Protocols, WifiController};
 use esp_rtos::embassy::InterruptExecutor;
 use flight_esp32s3::{
+    baro_task,
+    comms::comms_rx_task,
     dshot::{BoardDshot, Dshot300},
     interrupt_tasks::interrupt_main,
     profiler::Esp32Profiler,
-    tasks::{baro_task, drone_state_task, listen_for_commands, telemetry_task},
+    state::{drone_state_task, telemetry_task},
 };
 use panic_rtt_target as _;
 use static_cell::StaticCell;
@@ -107,5 +109,5 @@ async fn main(spawner: embassy_executor::Spawner) {
     spawner.spawn(drone_state_task().unwrap());
     spawner.spawn(telemetry_task().unwrap());
     spawner.spawn(baro_task(shared_spi, cs_baro).unwrap());
-    spawner.spawn(listen_for_commands(wifi_controller.esp_now()).unwrap());
+    spawner.spawn(comms_rx_task(wifi_controller.esp_now()).unwrap());
 }

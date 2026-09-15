@@ -10,13 +10,17 @@ mod baro;
 mod imu;
 pub mod interrupt_tasks;
 pub mod profiler;
-pub mod tasks;
 pub mod comms;
 pub mod dshot;
+pub mod state;
+
+pub use baro::{BoardBaro, baro_task};
 
 static THROTTLE: AtomicI32 = AtomicI32::new(0);
 static IMU_DATA_CHANNEL: Channel<CriticalSectionRawMutex, AccumulatedImu, 8> = Channel::new();
+static BARO_CHANNEL: Channel<CriticalSectionRawMutex, f32, 4> = Channel::new();
 static STATE_WATCH: Watch<CriticalSectionRawMutex, DroneState, 2> = Watch::new();
+
 
 #[derive(Copy, Clone)]
 pub struct CycleInstant(u32);

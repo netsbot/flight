@@ -1,8 +1,13 @@
 use bmp280::{Configuration, IIRFilter, Oversampling, spi::Bmp280};
-use embassy_time::Delay;
+use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
+use embassy_time::{Delay, Duration, Ticker};
+use esp_hal::{Async, gpio::Output, spi::master::Spi};
 use nalgebra::ComplexField;
 
-pub(crate) struct BoardBaro<SPI: embedded_hal_async::spi::SpiDevice> {
+use crate::BARO_CHANNEL;
+
+pub struct BoardBaro<SPI: embedded_hal_async::spi::SpiDevice> {
     inner: Bmp280<SPI, Delay>,
 }
 
@@ -30,3 +35,32 @@ impl<SPI: embedded_hal_async::spi::SpiDevice> BoardBaro<SPI> {
         SCALE_FACTOR * (1.0 - (self.read_pressure().await / qnh).powf(EXPONENT))
     }
 }
+
+#[embassy_executor::task]
+pub async fn baro_task(
+    spi: &'static Mutex<NoopRawMutex, Spi<'static, Async>>,
+    cs: Output<'static>,
+) {
+    let spi_device = SpiDevice::new(spi, cs);
+    let mut baro = BoardBaro::new(spi_device).await;
+    let ground_pressure = {
+        let mut sum = 0.0;
+        for _ in 0..50 {
+            sum += baro.read_pressure().await;
+        }
+        sum / 50.0
+    };
+
+    let mut ticker = Ticker::every(Duration::from_hz(50));
+    let baro_tx = BARO_CHANNEL.sender();
+
+    loop {
+        baro_tx
+            .send(baro.read_altitude(ground_pressure).await)
+            .await;
+        ticker.next().await;
+    }
+}
+
+
+
