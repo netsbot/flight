@@ -26,9 +26,9 @@ impl<S: SetDutyCycle> Servo<S> {
         };
 
         let half_throw = if directional_input >= 0.0 {
-            (self.config.max_us.saturating_sub(self.config.centre_us)) as f32
+            self.config.max_us.saturating_sub(self.config.centre_us) as f32
         } else {
-            (self.config.centre_us.saturating_sub(self.config.min_us)) as f32
+            self.config.centre_us.saturating_sub(self.config.min_us) as f32
         };
 
         let target_pulse = self.config.centre_us as f32 + (directional_input * half_throw);

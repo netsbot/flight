@@ -3,10 +3,9 @@ use core::marker::PhantomData;
 use dshot_frame::NormalDshot;
 use esp_hal::{
     Async,
-    gpio::{Level, OutputPin},
+    gpio::Level,
     rmt,
-    rmt::{ConfigError, Error, PulseCode, TxChannelConfig, TxChannelCreator},
-    time::Rate,
+    rmt::{ConfigError, Error, PulseCode, TxChannelCreator},
 };
 
 pub struct BoardDshot<'a, S: DshotSpeed> {
@@ -15,29 +14,13 @@ pub struct BoardDshot<'a, S: DshotSpeed> {
     _s: PhantomData<S>,
 }
 impl<'a, S: DshotSpeed> BoardDshot<'a, S> {
-    pub fn new<P: OutputPin + 'a, C>(
-        creator: C,
-        pin: P,
-        source_clock: Rate,
+    pub fn new<C>(
+        tx: rmt::Channel<'a, Async, rmt::Tx>,
+        channel_hz: u32,
     ) -> Result<Self, ConfigError>
     where
         C: TxChannelCreator<'a, Async>,
     {
-        // DIV=1 -> 80 MHz / 1 = 12.5 ns/tick. Max DShot pulse (~5 us)
-        // is ~400 ticks, well below the RMT 15-bit limit.
-        // NOTE: `source_clock` must match the `Rate` passed to `Rmt::new`.
-        const CLK_DIVIDER: u8 = 1;
-
-        let config = TxChannelConfig::default()
-            .with_clk_divider(CLK_DIVIDER)
-            .with_idle_output(true)
-            .with_idle_output_level(Level::Low)
-            .with_carrier_modulation(false);
-
-        let tx = creator.configure_tx(&config)?.with_pin(pin);
-
-        let channel_hz = source_clock.as_hz() / (CLK_DIVIDER as u32);
-
         Ok(Self {
             tx,
             channel_hz,
