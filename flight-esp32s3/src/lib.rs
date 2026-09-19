@@ -13,6 +13,7 @@ pub mod profiler;
 pub mod comms;
 pub mod dshot;
 pub mod state;
+pub mod servos;
 
 pub use baro::{BoardBaro, baro_task};
 
