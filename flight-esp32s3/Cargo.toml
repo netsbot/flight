@@ -29,6 +29,7 @@ embedded-profiling = { version = "0.3.0", features = ["proc-macros"] }
 esp-rtos = { version = "0.3.0", features = ["esp32s3", "embassy", "esp-radio"] }
 embassy-executor = "0.10.0"
 flight-core = { path = "../flight-core" }
+flight-comms-esp = { path = "../flight-comms-esp" }
 embassy-sync = "0.8.0"
 embassy-time = "0.5.0"
 embedded-hal = "1.0.0"

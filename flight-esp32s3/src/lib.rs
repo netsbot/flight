@@ -3,17 +3,15 @@
 use core::{sync::atomic::AtomicI32, time::Duration};
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, watch::Watch};
-use flight_core::DroneState;
-use flight_core::imu::AccumulatedImu;
+use flight_core::{DroneState, imu::AccumulatedImu};
 
 mod baro;
+pub mod dshot;
 mod imu;
 pub mod interrupt_tasks;
 pub mod profiler;
-pub mod comms;
-pub mod dshot;
-pub mod state;
 pub mod servos;
+pub mod state;
 
 pub use baro::{BoardBaro, baro_task};
 
@@ -21,7 +19,6 @@ static THROTTLE: AtomicI32 = AtomicI32::new(0);
 static IMU_DATA_CHANNEL: Channel<CriticalSectionRawMutex, AccumulatedImu, 8> = Channel::new();
 static BARO_CHANNEL: Channel<CriticalSectionRawMutex, f32, 4> = Channel::new();
 static STATE_WATCH: Watch<CriticalSectionRawMutex, DroneState, 2> = Watch::new();
-
 
 #[derive(Copy, Clone)]
 pub struct CycleInstant(u32);

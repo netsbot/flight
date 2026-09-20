@@ -14,7 +14,6 @@ use esp_hal::{
     clock::CpuClock,
     gpio::{Input, InputConfig, Level, Output, OutputConfig},
     interrupt::{Priority, software::SoftwareInterruptControl},
-    rmt,
     spi::{
         Mode,
         master::{Config, Spi},
@@ -24,10 +23,10 @@ use esp_hal::{
 };
 use esp_radio::wifi::{ControllerConfig, Protocol, Protocols, WifiController};
 use esp_rtos::embassy::InterruptExecutor;
+use flight_comms_esp::BoardRx;
+use flight_core::comms::Receiver;
 use flight_esp32s3::{
     baro_task,
-    comms::comms_rx_task,
-    dshot::{BoardDshot, Dshot300},
     interrupt_tasks::interrupt_main,
     profiler::Esp32Profiler,
     state::{drone_state_task, telemetry_task},
@@ -110,4 +109,17 @@ async fn main(spawner: embassy_executor::Spawner) {
     spawner.spawn(telemetry_task().unwrap());
     spawner.spawn(baro_task(shared_spi, cs_baro).unwrap());
     spawner.spawn(comms_rx_task(wifi_controller.esp_now()).unwrap());
+}
+
+#[embassy_executor::task]
+pub async fn comms_rx_task(esp_now: esp_radio::esp_now::EspNow<'static>) {
+    let (manager, _tx, rx) = esp_now.split();
+    manager.set_channel(10).unwrap();
+    let target_mac = [172, 39, 110, 170, 188, 84];
+    let mut board_rx = BoardRx::new(rx, target_mac);
+
+    loop {
+        let data = board_rx.receive().await.unwrap();
+        esp_println::println!("{:?}", data);
+    }
 }

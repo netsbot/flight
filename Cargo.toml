@@ -1,6 +1,6 @@
 [workspace]
 members = ["flight-core", "flight-sitl"]
-exclude = ["flight-esp32s3"]
+exclude = ["flight-esp32s3", "ground-station", "flight-comms-esp"]
 resolver = "3"
 
 [workspace.dependencies]
