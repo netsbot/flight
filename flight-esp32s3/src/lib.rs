@@ -5,15 +5,14 @@ use core::{sync::atomic::AtomicI32, time::Duration};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, watch::Watch};
 use flight_core::{DroneState, imu::AccumulatedImu};
 
-mod baro;
+pub mod baro;
+pub mod comms;
 pub mod dshot;
 mod imu;
 pub mod interrupt_tasks;
 pub mod profiler;
 pub mod servos;
 pub mod state;
-
-pub use baro::{BoardBaro, baro_task};
 
 static THROTTLE: AtomicI32 = AtomicI32::new(0);
 static IMU_DATA_CHANNEL: Channel<CriticalSectionRawMutex, AccumulatedImu, 8> = Channel::new();
