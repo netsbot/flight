@@ -1,4 +1,0 @@
-*.wbproj
-__pycache__
-worlds/.*
-.venv
