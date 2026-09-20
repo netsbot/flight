@@ -5,6 +5,7 @@ runner = "probe-rs run --chip=esp32s3 --preverify --always-print-stacktrace --no
 DEFMT_LOG="info"
 
 [build]
+target-dir = "../target"
 rustflags = [
   "-C", "link-arg=-nostartfiles",
 
