@@ -6,7 +6,6 @@ version = "0.1.0"
 
 [dependencies]
 esp-hal = { version = "~1.1.0", features = ["defmt", "esp32s3", "unstable"] }
-
 defmt = "1.0.1"
 esp-bootloader-esp-idf = { version = "0.5.0", features = ["defmt", "esp32s3"] }
 panic-rtt-target = { version = "0.2.0", features = ["defmt"] }
@@ -15,8 +14,10 @@ static_cell = "2.1.1"
 esp-rtos = { version = "0.3.0", features = ["esp32s3", "embassy", "esp-radio"] }
 embassy-executor = "0.10.0"
 flight-core = { path = "../flight-core" }
-flight-comms-esp = { path = "../flight-comms-esp" }
-embassy-time = "0.5.0"
+embedded-io-async = "0.7.0"
+embassy-sync = "0.8.0"
+embassy-futures = "0.1.2"
+embassy-time = "0.5.1"
 esp-radio = { version = "1.0.0-beta.0", features = ["esp32s3", "esp-now", "esp-alloc", "unstable"], default-features = false }
 esp-alloc = { version = "0.10.0", features = ["esp32s3"] }
 postcard = "1.1"
