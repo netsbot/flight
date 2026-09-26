@@ -77,6 +77,7 @@
     ctx: CanvasRenderingContext2D,
     cx: number,
     cy: number,
+    arcCy: number,
     arcRadius: number,
     scale: number,
     pitchPxPerDeg: number
@@ -84,8 +85,7 @@
     ctx.save();
 
     // STRICT CLIP: Do not render any pitch markings past the roll arc
-    // Everything above (cy - arcRadius + 18*scale) is masked out
-    const clipTop = cy - arcRadius + 18 * scale;
+    const clipTop = arcCy - arcRadius + 18 * scale;
     ctx.beginPath();
     ctx.rect(0, clipTop, width, height - clipTop);
     ctx.clip();
@@ -100,40 +100,20 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    for (let deg = -80; deg <= 80; deg += 5) {
+    for (let deg = -80; deg <= 80; deg += 2.5) {
       if (deg === 0) continue;
 
       const y = -deg * pitchPxPerDeg;
-      const isMajor = deg % 10 === 0;
+      const isMajor = Math.abs(deg % 5) < 1e-6;
       const rungHalfW = (isMajor ? 32 : 16) * scale;
-      const endTickH = 4 * scale;
 
       ctx.beginPath();
       ctx.strokeStyle = COLOR_LINE;
-      ctx.lineWidth = (isMajor ? 2 : 1.2) * scale;
+      ctx.lineWidth = 2 * scale;
 
-      if (deg > 0) {
-        // Positive pitch: solid rung with downward end ticks
-        ctx.moveTo(-rungHalfW, y);
-        ctx.lineTo(rungHalfW, y);
-        ctx.moveTo(-rungHalfW, y);
-        ctx.lineTo(-rungHalfW, y + endTickH);
-        ctx.moveTo(rungHalfW, y);
-        ctx.lineTo(rungHalfW, y + endTickH);
-      } else {
-        // Negative pitch: dashed rung with upward end ticks
-        ctx.setLineDash([5 * scale, 3 * scale]);
-        ctx.moveTo(-rungHalfW, y);
-        ctx.lineTo(rungHalfW, y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        ctx.beginPath();
-        ctx.moveTo(-rungHalfW, y);
-        ctx.lineTo(-rungHalfW, y - endTickH);
-        ctx.moveTo(rungHalfW, y);
-        ctx.lineTo(rungHalfW, y - endTickH);
-      }
+      // Plain solid rung
+      ctx.moveTo(-rungHalfW, y);
+      ctx.lineTo(rungHalfW, y);
       ctx.stroke();
 
       if (isMajor) {
@@ -279,17 +259,18 @@
     const scale = Math.min(Math.max(width / 440, 0.6), Math.max(height / 360, 0.6));
     const cx = width / 2;
     const cy = height / 2 + 10 * scale;
-    const arcRadius = Math.max(85, Math.min(cx * 0.7, (cy - 36 * scale) * 0.9));
-    const pitchPxPerDeg = 4.2 * scale;
+    const arcCy = cy - 48 * scale;
+    const arcRadius = Math.max(85, Math.min(cx * 0.7, (arcCy - 36 * scale) * 0.9));
+    const pitchPxPerDeg = 6.0 * scale;
 
     // 1. Sky & Ground (Full Bleed)
     drawSkyAndGround(ctx, cx, cy, width, height, pitchPxPerDeg);
 
     // 2. Pitch Ladder (STRICTLY clipped so nothing renders past the arc)
-    drawPitchLadder(ctx, cx, cy, arcRadius, scale, pitchPxPerDeg);
+    drawPitchLadder(ctx, cx, cy, arcCy, arcRadius, scale, pitchPxPerDeg);
 
     // 3. Roll Arc & Slip/Skid Brick
-    drawRollScale(ctx, cx, cy, arcRadius, scale);
+    drawRollScale(ctx, cx, arcCy, arcRadius, scale);
 
     // 4. Yellow Aircraft Reference Symbol
     drawAircraftSymbol(ctx, cx, cy, scale);
