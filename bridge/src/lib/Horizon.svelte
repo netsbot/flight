@@ -5,14 +5,12 @@
     pitch = 0,         // degrees: +nose up, -nose down
     roll = 0,          // degrees: +right bank, -left bank
     yaw = 0,           // degrees: 0..360
-    slip = 0,          // slip/skid: -1..1
     width: propWidth,  // optional explicit width in px
     height: propHeight // optional explicit height in px
   } = $props<{
     pitch?: number;
     roll?: number;
     yaw?: number;
-    slip?: number;
     width?: number;
     height?: number;
   }>();
@@ -149,7 +147,7 @@
     ctx.restore();
   }
 
-  // --- 3. G1000 Roll Arc & Slip/Skid "Brick" ---
+  // --- 3. G1000 Roll Arc ---
   function drawRollScale(
     ctx: CanvasRenderingContext2D,
     cx: number,
@@ -178,45 +176,36 @@
 
       ctx.beginPath();
       if (isDot) {
-        const dotR = arcRadius - 6 * scale;
+        const dotR = arcRadius + 6 * scale;
         ctx.arc(Math.cos(rad) * dotR, Math.sin(rad) * dotR, 2.5 * scale, 0, Math.PI * 2);
         ctx.fillStyle = COLOR_LINE;
         ctx.fill();
       } else {
         ctx.moveTo(Math.cos(rad) * arcRadius, Math.sin(rad) * arcRadius);
-        ctx.lineTo(Math.cos(rad) * (arcRadius - tickLen), Math.sin(rad) * (arcRadius - tickLen));
+        ctx.lineTo(Math.cos(rad) * (arcRadius + tickLen), Math.sin(rad) * (arcRadius + tickLen));
         ctx.stroke();
       }
     }
 
-    // Top zero-roll reference inverted triangle
+    // Fixed outer reference triangle (top)
     ctx.fillStyle = COLOR_LINE;
     ctx.beginPath();
     ctx.moveTo(0, -arcRadius);
-    ctx.lineTo(-6 * scale, -(arcRadius - 12 * scale));
-    ctx.lineTo(6 * scale, -(arcRadius - 12 * scale));
-    ctx.closePath();
-    ctx.fill();
-
-    // Rotating roll pointer & slip brick
-    ctx.rotate((-roll * Math.PI) / 180);
-
-    // Roll pointer (points upward to arc)
-    ctx.beginPath();
-    ctx.moveTo(0, -(arcRadius));
     ctx.lineTo(-6 * scale, -(arcRadius + 12 * scale));
     ctx.lineTo(6 * scale, -(arcRadius + 12 * scale));
     ctx.closePath();
     ctx.fill();
 
-    // G1000 Slip/Skid Brick (trapezoid beneath pointer)
-    const slipOffset = Math.max(-1, Math.min(1, slip)) * 14 * scale;
-    const brickW = 18 * scale;
-    const brickH = 4.5 * scale;
-    const brickY = -(arcRadius - 18 * scale);
+    // Rotating inner pointer (inside arc, moves with roll)
+    ctx.rotate((-roll * Math.PI) / 180);
 
-    ctx.fillStyle = COLOR_LINE;
-    ctx.fillRect(slipOffset - brickW / 2, brickY, brickW, brickH);
+    // Roll pointer (inside, points outward to arc)
+    ctx.beginPath();
+    ctx.moveTo(0, -(arcRadius));
+    ctx.lineTo(-6 * scale, -(arcRadius - 12 * scale));
+    ctx.lineTo(6 * scale, -(arcRadius - 12 * scale));
+    ctx.closePath();
+    ctx.fill();
 
     ctx.restore();
   }
@@ -268,94 +257,6 @@
     ctx.restore();
   }
 
-  // --- 5. Top Heading Tape ---
-  function drawHeadingTape(
-    ctx: CanvasRenderingContext2D,
-    w: number,
-    scale: number
-  ) {
-    const tapeHeight = Math.max(28, 32 * scale);
-    const yawPxPerDeg = 4.5 * scale;
-    const currentHeading = norm360(yaw);
-
-    ctx.save();
-    ctx.fillStyle = 'rgba(2, 6, 23, 0.88)';
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 1;
-    ctx.fillRect(0, 0, w, tapeHeight);
-    ctx.strokeRect(0, 0, w, tapeHeight);
-
-    ctx.beginPath();
-    ctx.rect(0, 0, w, tapeHeight);
-    ctx.clip();
-
-    ctx.font = `bold ${Math.max(9, Math.round(10.5 * scale))}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-
-    const span = Math.ceil(w / (yawPxPerDeg * 2)) + 5;
-    const startDeg = Math.floor((currentHeading - span) / 5) * 5;
-    const endDeg = Math.ceil((currentHeading + span) / 5) * 5;
-
-    for (let d = startDeg; d <= endDeg; d += 5) {
-      const heading = norm360(d);
-      const x = w / 2 + (d - currentHeading) * yawPxPerDeg;
-      const isMajor = heading % 10 === 0;
-
-      ctx.beginPath();
-      ctx.strokeStyle = COLOR_LINE;
-      ctx.lineWidth = (isMajor ? 1.5 : 1) * scale;
-      ctx.moveTo(x, tapeHeight);
-      ctx.lineTo(x, tapeHeight - (isMajor ? 8 : 4) * scale);
-      ctx.stroke();
-
-      if (isMajor) {
-        let label = '';
-        if (heading === 0) label = 'N';
-        else if (heading === 90) label = 'E';
-        else if (heading === 180) label = 'S';
-        else if (heading === 270) label = 'W';
-        else label = `${Math.round(heading / 10).toString().padStart(2, '0')}`;
-
-        ctx.fillStyle = COLOR_LINE;
-        ctx.fillText(label, x, 4 * scale);
-      }
-    }
-    ctx.restore();
-
-    // Center Lubber Box & Pointer
-    ctx.save();
-    const boxW = Math.max(44, 52 * scale);
-    const boxH = Math.max(18, 20 * scale);
-    const boxY = tapeHeight + 2;
-    const cx = w / 2;
-
-    ctx.fillStyle = '#020617';
-    ctx.strokeStyle = COLOR_LINE;
-    ctx.lineWidth = 1.2;
-    ctx.fillRect(cx - boxW / 2, boxY, boxW, boxH);
-    ctx.strokeRect(cx - boxW / 2, boxY, boxW, boxH);
-
-    ctx.beginPath();
-    ctx.moveTo(cx, tapeHeight);
-    ctx.lineTo(cx - 5 * scale, boxY);
-    ctx.lineTo(cx + 5 * scale, boxY);
-    ctx.closePath();
-    ctx.fillStyle = COLOR_LINE;
-    ctx.fill();
-
-    ctx.fillStyle = COLOR_LINE;
-    ctx.font = `bold ${Math.max(10, Math.round(11.5 * scale))}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(
-      `${Math.round(currentHeading).toString().padStart(3, '0')}°`,
-      cx,
-      boxY + boxH / 2
-    );
-    ctx.restore();
-  }
-
   function render() {
     if (!canvas || width <= 0 || height <= 0) return;
     const ctx = canvas.getContext('2d');
@@ -392,9 +293,6 @@
 
     // 4. Yellow Aircraft Reference Symbol
     drawAircraftSymbol(ctx, cx, cy, scale);
-
-    // 5. Top Heading Tape
-    // drawHeadingTape(ctx, width, scale);
 
     ctx.restore();
   }

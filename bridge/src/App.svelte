@@ -1,13 +1,14 @@
 <script lang="ts">
     import Horizon from "./lib/Horizon.svelte";
+    import GpsMap from "./lib/GpsMap.svelte";
 
     let gp = $state<Gamepad | null>(null);
     let pollHandle: number | null = null;
-    let yaw = $state(11);
+    let yaw = $state(192);
+    let coords = $state<[number, number]>([1.3521, 103.8198]);
 
     let roll = $derived(gp && gp.axes[2] !== undefined ? gp.axes[2] * 45 : 0);
     let pitch = $derived(gp && gp.axes[3] !== undefined ? -gp.axes[3] * 30 : 0);
-    let slip = $derived(gp && gp.axes[0] !== undefined ? gp.axes[0] : 0);
 
     function addGamepad(e: GamepadEvent) {
         gp = e.gamepad;
@@ -40,7 +41,12 @@
     ongamepadconnected={addGamepad}
     ongamepaddisconnected={removeGamepad}
 />
-<div class="h-1/2 w-1/2">
-<Horizon {pitch} {roll} {yaw} {slip} />
+<div class="grid h-1/2 w-full grid-cols-2 gap-2">
+<div class="min-h-0 min-w-0">
+<Horizon {pitch} {roll} {yaw} />
+</div>
 
+<div class="min-h-0 min-w-0">
+<GpsMap coords={coords} {yaw} />
+</div>
 </div>
