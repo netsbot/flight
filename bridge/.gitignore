@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Generated: ts-rs types + wasm-bindgen output (rebuilt via pnpm bindings / pnpm wasm)
+src/lib/types
+src/lib/wasm
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -3,10 +3,15 @@ name = "flight-core"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+generate-bindings = ["dep:ts-rs"]
+
 [dependencies]
 nalgebra = { workspace = true }
 num-traits = { version = "0.2.19", default-features = false, features = ["libm"] }
+serde = { workspace = true, features = ["derive", "alloc"] }
+postcard = { workspace = true }
 defmt = "1.1.1"
-serde = { version = "1.0", default-features = false }
-postcard = "1.1"
 thiserror = { version = "2", default-features = false }
+ts-rs = { version = "12", optional = true }

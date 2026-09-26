@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "generate-bindings"), no_std)]
 pub mod altitude_estimator;
 pub mod fusion;
 pub mod imu;

@@ -4,14 +4,20 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "bindings": "cargo test -p flight-core --features generate-bindings",
+    "wasm": "command -v wasm-bindgen >/dev/null 2>&1 || (echo 'error: wasm-bindgen CLI not found. Install it with: cargo install wasm-bindgen-cli' >&2; exit 1); cargo build -p web-decoder --target wasm32-unknown-unknown --release && wasm-bindgen --target web --out-dir src/lib/wasm ../target/wasm32-unknown-unknown/release/web_decoder.wasm",
+    "predev": "pnpm bindings && pnpm wasm",
     "dev": "vite",
+    "prebuild": "pnpm bindings && pnpm wasm",
     "build": "vite build",
     "preview": "vite preview",
+    "precheck": "pnpm bindings",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@tsconfig/svelte": "^5.0.8",
+    "@types/w3c-web-serial": "^1.0.8",
     "@types/node": "^24.13.3",
     "svelte": "^5.57.0",
     "svelte-check": "^4.7.6",

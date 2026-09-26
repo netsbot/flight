@@ -1,16 +1,37 @@
 <script lang="ts">
+    import { onMount } from "svelte";
     import Horizon from "./lib/Horizon.svelte";
     import GpsMap from "./lib/GpsMap.svelte";
+    import initWasm, { decode_packet, encode_packet } from "./lib/wasm/web_decoder";
+    import type { Command } from "./lib/types/Command";
 
     let gp = $state<Gamepad | null>(null);
+    let port = $state<SerialPort | null>(null);
+
+    // Connection & Handshake Status
+    let isConnected = $state(false);
+    let isVerified = $state(false);
+    let droneLinked = $state(false);
+    let droneRssi = $state<number | null>(null);
+    let firmwareVersion = $state<number | null>(null);
+    let connectionError = $state<string | null>(null);
+
     let pollHandle: number | null = null;
     let yaw = $state(192);
     let coords = $state<[number, number]>([1.3521, 103.8198]);
     let speed = $state(45);
     let altitude = $state(120);
 
-    let roll = $derived(gp && gp.axes[2] !== undefined ? gp.axes[2] * 45 : 0);
-    let pitch = $derived(gp && gp.axes[3] !== undefined ? -gp.axes[3] * 30 : 0);
+    // Telemetry state
+    let telemetryRoll = $state(0);
+    let telemetryPitch = $state(0);
+
+    let roll = $derived(gp && gp.axes[2] !== undefined ? gp.axes[2] * 45 : telemetryRoll);
+    let pitch = $derived(gp && gp.axes[3] !== undefined ? -gp.axes[3] * 30 : telemetryPitch);
+
+    onMount(() => {
+        initWasm().catch(console.error);
+    });
 
     function addGamepad(e: GamepadEvent) {
         gp = e.gamepad;
@@ -44,18 +65,201 @@
 
         pollHandle = requestAnimationFrame(pollGamepad);
     }
+
+    async function sendCommand(cmd: Command) {
+        if (!port || !port.writable) return;
+        const writer = port.writable.getWriter();
+        try {
+            const bytes = encode_packet(cmd);
+            await writer.write(bytes);
+        } finally {
+            writer.releaseLock();
+        }
+    }
+
+    async function connectSerial() {
+        connectionError = null;
+        try {
+            // 1. Request port filtered strictly to Espressif USB vendor ID (0x303a)
+            port = await navigator.serial.requestPort({
+                filters: [{ usbVendorId: 0x303a }]
+            });
+
+            await port.open({ baudRate: 115200 });
+            isConnected = true;
+            isVerified = false;
+
+            // 2. Start reading frames
+            readSerialLoop();
+
+            // 3. Send Ping handshake to verify ground station firmware
+            await sendCommand("Ping");
+
+            // 4. Timeout check: if no Pong arrives within 1.5s, warn user
+            setTimeout(() => {
+                if (isConnected && !isVerified) {
+                    connectionError = "Connected to ESP32, but no Pong received (check firmware or baud rate).";
+                }
+            }, 1500);
+        } catch (err: any) {
+            console.error("Serial connect error:", err);
+            if (err.name !== "NotFoundError") {
+                connectionError = err.message || "Failed to open serial port.";
+            }
+            isConnected = false;
+        }
+    }
+
+    async function disconnectSerial() {
+        isConnected = false;
+        isVerified = false;
+        droneLinked = false;
+        droneRssi = null;
+        if (port) {
+            try {
+                await port.close();
+            } catch (e) {
+                console.error("Error closing port:", e);
+            }
+            port = null;
+        }
+    }
+
+    async function readSerialLoop() {
+        if (!port || !port.readable) return;
+        const reader = port.readable.getReader();
+        let buffer: number[] = [];
+
+        try {
+            while (isConnected) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                // Accumulate bytes until 0x00 (COBS delimiter)
+                for (const byte of value) {
+                    if (byte === 0x00) {
+                        if (buffer.length > 0) {
+                            try {
+                                const cmd = decode_packet(new Uint8Array(buffer));
+                                handleCommand(cmd);
+                            } catch (e) {
+                                console.warn("Failed to decode packet:", e);
+                            }
+                            buffer = [];
+                        }
+                    } else {
+                        buffer.push(byte);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("Serial read loop error:", err);
+        } finally {
+            reader.releaseLock();
+        }
+    }
+
+    function handleCommand(cmd: Command) {
+        if (cmd === "Ping") {
+            // Reply with Pong if requested
+            return;
+        }
+
+        if (typeof cmd === "object") {
+            if ("Pong" in cmd) {
+                isVerified = true;
+                connectionError = null;
+                firmwareVersion = cmd.Pong.version;
+                droneLinked = cmd.Pong.drone_linked;
+                droneRssi = cmd.Pong.rssi;
+            } else if ("Attitude" in cmd) {
+                telemetryRoll = cmd.Attitude[0];
+                telemetryPitch = cmd.Attitude[1];
+                yaw = cmd.Attitude[2];
+            } else if ("Altitude" in cmd) {
+                altitude = cmd.Altitude;
+            } else if ("Time" in cmd) {
+                // Heartbeat timestamp
+            }
+        }
+    }
 </script>
 
 <svelte:window
     ongamepadconnected={addGamepad}
     ongamepaddisconnected={removeGamepad}
 />
-<div class="grid h-1/2 w-full grid-cols-2 gap-2">
-<div class="min-h-0 min-w-0">
-<Horizon {pitch} {roll} {yaw} {speed} {altitude} />
-</div>
 
-<div class="min-h-0 min-w-0">
-<GpsMap coords={coords} {yaw} />
-</div>
+<div class="flex flex-col h-screen w-full bg-slate-950 p-2 gap-2 select-none">
+    <!-- Main instruments grid -->
+    <div class="grid h-1/2 w-full grid-cols-2 gap-2">
+        <div class="min-h-0 min-w-0">
+            <Horizon {pitch} {roll} {yaw} {speed} {altitude} />
+        </div>
+
+        <div class="min-h-0 min-w-0">
+            <GpsMap {coords} {yaw} />
+        </div>
+    </div>
+
+    <!-- Ground Station Control & Telemetry Bar -->
+    <footer class="flex items-center justify-between px-4 py-2 bg-slate-900 border border-slate-800 rounded-md font-mono text-xs text-slate-300">
+        <!-- Connection actions & USB Status -->
+        <div class="flex items-center gap-3">
+            {#if !isConnected}
+                <button
+                    onclick={connectSerial}
+                    class="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-semibold transition"
+                >
+                    Connect Serial (ESP32)
+                </button>
+            {:else}
+                <button
+                    onclick={disconnectSerial}
+                    class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-300 border border-slate-700 transition"
+                >
+                    Disconnect
+                </button>
+            {/if}
+
+            <!-- Hardware Bridge Status -->
+            <div class="flex items-center gap-1.5">
+                <span class="h-2 w-2 rounded-full {isConnected ? (isVerified ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse') : 'bg-slate-600'}"></span>
+                <span>
+                    {#if !isConnected}
+                        USB Disconnected
+                    {:else if isVerified}
+                        Bridge v{firmwareVersion} (ESP32)
+                    {:else}
+                        Verifying Bridge...
+                    {/if}
+                </span>
+            </div>
+
+            <!-- Drone Radio Link Status -->
+            {#if isConnected && isVerified}
+                <div class="flex items-center gap-1.5 border-l border-slate-800 pl-3">
+                    <span class="h-2 w-2 rounded-full {droneLinked ? 'bg-emerald-400' : 'bg-rose-500 animate-pulse'}"></span>
+                    <span>
+                        {#if droneLinked}
+                            Drone Linked {droneRssi !== null ? `(${droneRssi} dBm)` : ''}
+                        {:else}
+                            Drone Link: Searching...
+                        {/if}
+                    </span>
+                </div>
+            {/if}
+        </div>
+
+        <!-- Diagnostics / Error Display -->
+        <div>
+            {#if connectionError}
+                <span class="text-rose-400 text-[11px]">{connectionError}</span>
+            {:else if gp}
+                <span class="text-slate-400 text-[11px]">Gamepad: {gp.id.slice(0, 24)}</span>
+            {:else}
+                <span class="text-slate-500 text-[11px]">Ready</span>
+            {/if}
+        </div>
+    </footer>
 </div>

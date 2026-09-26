@@ -1,0 +1,14 @@
+[package]
+name = "web-decoder"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+flight-core = { path = "../flight-core" }
+postcard = { workspace = true, features = ["alloc"] }
+serde = { workspace = true, features = ["derive", "alloc"] }
+wasm-bindgen = "0.2.129"
+serde-wasm-bindgen = "0.6"
