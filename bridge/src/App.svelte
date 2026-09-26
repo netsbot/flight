@@ -1,36 +1,46 @@
 <script lang="ts">
-    let gp: Gamepad | null = $state(null);
+    import Horizon from "./lib/Horizon.svelte";
+
+    let gp = $state<Gamepad | null>(null);
     let pollHandle: number | null = null;
+    let yaw = $state(11);
+
+    let roll = $derived(gp && gp.axes[2] !== undefined ? gp.axes[2] * 45 : 0);
+    let pitch = $derived(gp && gp.axes[3] !== undefined ? -gp.axes[3] * 30 : 0);
+    let slip = $derived(gp && gp.axes[0] !== undefined ? gp.axes[0] : 0);
 
     function addGamepad(e: GamepadEvent) {
         gp = e.gamepad;
-
-        pollGamepad()
+        pollGamepad();
     }
 
     function removeGamepad() {
         gp = null;
-        
         if (pollHandle !== null) {
             cancelAnimationFrame(pollHandle);
         }
     }
 
     function pollGamepad() {
-        if (gp === null) {
-            return;
+        if (gp === null) return;
+
+        const currentGp = navigator.getGamepads()[gp.index];
+        if (currentGp) {
+            gp = currentGp;
+            if (Math.abs(currentGp.axes[0] ?? 0) > 0.05) {
+                yaw = (yaw + currentGp.axes[0] * 1.5 + 360) % 360;
+            }
         }
 
-        gp = navigator.getGamepads()[gp.index];
         pollHandle = requestAnimationFrame(pollGamepad);
     }
 </script>
 
-<svelte:window ongamepadconnected={addGamepad} ongamepaddisconnected={removeGamepad} />
+<svelte:window
+    ongamepadconnected={addGamepad}
+    ongamepaddisconnected={removeGamepad}
+/>
+<div class="h-1/2 w-1/2">
+<Horizon {pitch} {roll} {yaw} {slip} />
 
-{#if gp !== null}
-	<p>{gp.axes}</p>
-{:else}
-	<p>please connect a gamepad</p>
-{/if}
-
+</div>
