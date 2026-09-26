@@ -5,12 +5,16 @@
     pitch = 0,         // degrees: +nose up, -nose down
     roll = 0,          // degrees: +right bank, -left bank
     yaw = 0,           // degrees: 0..360
+    speed = 0,         // airspeed (knots or km/h)
+    altitude = 0,      // altitude (m or ft)
     width: propWidth,  // optional explicit width in px
     height: propHeight // optional explicit height in px
   } = $props<{
     pitch?: number;
     roll?: number;
     yaw?: number;
+    speed?: number;
+    altitude?: number;
     width?: number;
     height?: number;
   }>();
@@ -190,6 +194,166 @@
     ctx.restore();
   }
 
+  // --- 5. G1000 Airspeed Tape (left) ---
+  function drawSpeedTape(
+    ctx: CanvasRenderingContext2D,
+    leftX: number,
+    cy: number,
+    tapeH: number,
+    scale: number
+  ) {
+    const tapeW = 52 * scale;
+    const pxPerUnit = tapeH / 60; // ±30 visible
+    const span = 30;
+
+    ctx.save();
+
+    // Background strip
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.fillRect(leftX, cy - tapeH / 2, tapeW, tapeH);
+    ctx.strokeRect(leftX, cy - tapeH / 2, tapeW, tapeH);
+
+    // Clip scrolling scale to strip
+    ctx.beginPath();
+    ctx.rect(leftX, cy - tapeH / 2, tapeW, tapeH);
+    ctx.clip();
+
+    ctx.font = `bold ${Math.max(9, Math.round(10 * scale))}px monospace`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    const minV = Math.max(0, Math.floor((speed - span) / 5) * 5);
+    const maxV = Math.ceil((speed + span) / 5) * 5;
+
+    for (let s = minV; s <= maxV; s += 5) {
+      const y = cy - (s - speed) * pxPerUnit;
+      const isMajor = s % 10 === 0;
+
+      ctx.beginPath();
+      ctx.strokeStyle = COLOR_LINE;
+      ctx.lineWidth = (isMajor ? 2 : 1.2) * scale;
+      ctx.moveTo(leftX + tapeW, y);
+      ctx.lineTo(leftX + tapeW - (isMajor ? 9 : 5) * scale, y);
+      ctx.stroke();
+
+      if (isMajor) {
+        ctx.fillStyle = COLOR_LINE;
+        ctx.fillText(s.toString(), leftX + tapeW - 12 * scale, y);
+      }
+    }
+
+    ctx.restore();
+
+    // Current value box + pointer
+    ctx.save();
+    const boxW = 46 * scale;
+    const boxH = 20 * scale;
+    const boxX = leftX - 6 * scale;
+    ctx.fillStyle = '#020617';
+    ctx.strokeStyle = COLOR_LINE;
+    ctx.lineWidth = 1.2;
+    ctx.fillRect(boxX, cy - boxH / 2, boxW, boxH);
+    ctx.strokeRect(boxX, cy - boxH / 2, boxW, boxH);
+
+    // Pointer notch into tape
+    ctx.beginPath();
+    ctx.moveTo(leftX + tapeW, cy - 5 * scale);
+    ctx.lineTo(leftX + tapeW + 6 * scale, cy);
+    ctx.lineTo(leftX + tapeW, cy + 5 * scale);
+    ctx.closePath();
+    ctx.fillStyle = '#020617';
+    ctx.fill();
+
+    ctx.fillStyle = COLOR_LINE;
+    ctx.font = `bold ${Math.max(10, Math.round(11 * scale))}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(Math.round(speed).toString(), boxX + boxW / 2, cy);
+    ctx.restore();
+  }
+
+  // --- 6. G1000 Altitude Tape (right) ---
+  function drawAltitudeTape(
+    ctx: CanvasRenderingContext2D,
+    rightX: number,
+    cy: number,
+    tapeH: number,
+    scale: number
+  ) {
+    const tapeW = 56 * scale;
+    const pxPerUnit = tapeH / 120; // ±60 visible
+    const span = 60;
+
+    ctx.save();
+
+    // Background strip
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    ctx.fillRect(rightX, cy - tapeH / 2, tapeW, tapeH);
+    ctx.strokeRect(rightX, cy - tapeH / 2, tapeW, tapeH);
+
+    // Clip scrolling scale to strip
+    ctx.beginPath();
+    ctx.rect(rightX, cy - tapeH / 2, tapeW, tapeH);
+    ctx.clip();
+
+    ctx.font = `bold ${Math.max(9, Math.round(10 * scale))}px monospace`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+
+    const minV = Math.max(0, Math.floor((altitude - span) / 10) * 10);
+    const maxV = Math.ceil((altitude + span) / 10) * 10;
+
+    for (let a = minV; a <= maxV; a += 10) {
+      const y = cy - (a - altitude) * pxPerUnit;
+      const isMajor = a % 20 === 0;
+
+      ctx.beginPath();
+      ctx.strokeStyle = COLOR_LINE;
+      ctx.lineWidth = (isMajor ? 2 : 1.2) * scale;
+      ctx.moveTo(rightX, y);
+      ctx.lineTo(rightX + (isMajor ? 9 : 5) * scale, y);
+      ctx.stroke();
+
+      if (isMajor) {
+        ctx.fillStyle = COLOR_LINE;
+        ctx.fillText(a.toString(), rightX + 12 * scale, y);
+      }
+    }
+
+    ctx.restore();
+
+    // Current value box + pointer
+    ctx.save();
+    const boxW = 52 * scale;
+    const boxH = 20 * scale;
+    const boxX = rightX + tapeW - boxW + 6 * scale;
+    ctx.fillStyle = '#020617';
+    ctx.strokeStyle = COLOR_LINE;
+    ctx.lineWidth = 1.2;
+    ctx.fillRect(boxX, cy - boxH / 2, boxW, boxH);
+    ctx.strokeRect(boxX, cy - boxH / 2, boxW, boxH);
+
+    // Pointer notch into tape
+    ctx.beginPath();
+    ctx.moveTo(rightX, cy - 5 * scale);
+    ctx.lineTo(rightX - 6 * scale, cy);
+    ctx.lineTo(rightX, cy + 5 * scale);
+    ctx.closePath();
+    ctx.fillStyle = '#020617';
+    ctx.fill();
+
+    ctx.fillStyle = COLOR_LINE;
+    ctx.font = `bold ${Math.max(10, Math.round(11 * scale))}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(Math.round(altitude).toString(), boxX + boxW / 2, cy);
+    ctx.restore();
+  }
+
   // --- 4. G1000 Yellow Aircraft Reference Symbol ---
   function drawAircraftSymbol(
     ctx: CanvasRenderingContext2D,
@@ -274,6 +438,11 @@
 
     // 4. Yellow Aircraft Reference Symbol
     drawAircraftSymbol(ctx, cx, cy, scale);
+
+    // 5. Airspeed + Altitude tapes (G1000 sides, centered on horizon)
+    const tapeH = Math.min(height * 0.62, arcRadius * 1.8);
+    drawSpeedTape(ctx, 10 * scale, cy, tapeH, scale);
+    drawAltitudeTape(ctx, width - 66 * scale, cy, tapeH, scale);
 
     ctx.restore();
   }
