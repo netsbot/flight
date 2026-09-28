@@ -42,8 +42,10 @@
     ctx.arc(0, 0, arcRadius, -Math.PI / 2 - rad60, -Math.PI / 2 + rad60);
     ctx.stroke();
 
-    // World-fixed headings slide along the fixed arc as yaw changes
-    const tickLen = 8 * scale;
+    // World-fixed headings slide along the fixed arc as yaw changes.
+    // Arc spans 120° (±60). Minor ticks every 010°, labels only every 030°.
+    const minorTickLen = 5 * scale;
+    const majorTickLen = 8 * scale;
 
     for (let abs = 0; abs < 360; abs += 10) {
       // Screen offset of this world heading relative to nose (-180..180)
@@ -51,6 +53,8 @@
       if (Math.abs(offset) > 60) continue;
 
       const rad = ((offset - 90) * Math.PI) / 180;
+      const isMajor = abs % 30 === 0;
+      const tickLen = isMajor ? majorTickLen : minorTickLen;
 
       // Inner tick mark (rotates with world)
       ctx.beginPath();
@@ -60,9 +64,9 @@
       ctx.lineTo(Math.cos(rad) * (arcRadius - tickLen), Math.sin(rad) * (arcRadius - tickLen));
       ctx.stroke();
 
-      // Inner label (rotates with world, skip under nose)
-      if (Math.abs(offset) > 4) {
-        const labelR = arcRadius - tickLen - 11 * scale;
+      // Inner label on majors only (including under nose)
+      if (isMajor) {
+        const labelR = arcRadius - majorTickLen - 11 * scale;
         ctx.fillStyle = COLOR_LINE;
         ctx.font = `bold ${Math.max(9, Math.round(10 * scale))}px monospace`;
         ctx.textAlign = 'center';
