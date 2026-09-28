@@ -76,44 +76,52 @@
     ctx.restore();
   }
 
-  // --- 2. G1000 Pitch Ladder (Strictly Clipped Below Arc) ---
+  // --- 2. G1000 Pitch Ladder (Masked Right Up to the Arc) ---
   function drawPitchLadder(
     ctx: CanvasRenderingContext2D,
     cx: number,
     cy: number,
-    arcCy: number,
     arcRadius: number,
     scale: number,
     pitchPxPerDeg: number
   ) {
     ctx.save();
 
-    // STRICT CLIP: Do not render any pitch markings past the roll arc
-    const clipTop = arcCy - arcRadius + 18 * scale;
-    ctx.beginPath();
-    ctx.rect(0, clipTop, width, height - clipTop);
-    ctx.clip();
-
     // Transform into pitch/roll aircraft frame
     ctx.translate(cx, cy);
     ctx.rotate((-roll * Math.PI) / 180);
+
+    // MASK ONLY FOR TOP (Roll Arc boundary), BOTTOM IS UNMASKED
+    const r = arcRadius - 2.5 * scale;
+    const box = Math.max(width, height) * 2;
+    ctx.beginPath();
+    // Upper arc right up to the roll arc (from 0 to PI counter-clockwise through -PI/2)
+    ctx.arc(0, 0, r, 0, Math.PI, true);
+    // Lower half extends wide open down to bottom bounds
+    ctx.lineTo(-box, box);
+    ctx.lineTo(box, box);
+    ctx.closePath();
+    ctx.clip();
+
+    // Translate along pitch axis
     ctx.translate(0, pitch * pitchPxPerDeg);
 
     ctx.fillStyle = COLOR_LINE;
-    ctx.font = `bold ${Math.max(10, Math.round(11 * scale))}px monospace`;
+    ctx.font = `bold ${Math.max(10, Math.round(12 * scale))}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    for (let deg = -80; deg <= 80; deg += 2.5) {
-      if (deg === 0) continue;
+    // Static continuous loop: GPU clips lines smoothly right at the arc edge
+    for (let deg = -85; deg <= 85; deg += 2.5) {
+      if (Math.abs(deg) < 1e-4) continue;
 
       const y = -deg * pitchPxPerDeg;
       const isMajor = Math.abs(deg % 5) < 1e-6;
-      const rungHalfW = (isMajor ? 32 : 16) * scale;
+      const rungHalfW = (isMajor ? 40 : 20) * scale;
 
       ctx.beginPath();
       ctx.strokeStyle = COLOR_LINE;
-      ctx.lineWidth = 2 * scale;
+      ctx.lineWidth = Math.max(1.8, 2.2 * scale);
 
       // Plain solid rung
       ctx.moveTo(-rungHalfW, y);
@@ -131,7 +139,7 @@
     ctx.restore();
   }
 
-  // --- 3. G1000 Roll Arc ---
+  // --- 3. G1000 Roll Arc & Sky Pointer ---
   function drawRollScale(
     ctx: CanvasRenderingContext2D,
     cx: number,
@@ -142,11 +150,23 @@
     ctx.save();
     ctx.translate(cx, cy);
 
+    // 1. Fixed bottom indicator (roll pointer at 12 o'clock, pointing outward to arc)
+    ctx.fillStyle = COLOR_LINE;
+    ctx.beginPath();
+    ctx.moveTo(0, -arcRadius);
+    ctx.lineTo(-6 * scale, -(arcRadius - 12 * scale));
+    ctx.lineTo(6 * scale, -(arcRadius - 12 * scale));
+    ctx.closePath();
+    ctx.fill();
+
+    // 2. Arc, tick marks, and top triangle move with the horizon
+    ctx.rotate((-roll * Math.PI) / 180);
+
     const ticks = [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60];
     ctx.strokeStyle = COLOR_LINE;
     ctx.lineWidth = Math.max(1.5, 2 * scale);
 
-    // Roll Arc line
+    // Roll Arc line (moves with horizon)
     ctx.beginPath();
     const rad60 = (60 * Math.PI) / 180;
     ctx.arc(0, 0, arcRadius, -Math.PI / 2 - rad60, -Math.PI / 2 + rad60);
@@ -171,23 +191,12 @@
       }
     }
 
-    // Fixed outer reference triangle (top)
+    // Top triangle (zero reference index on the arc, moves with horizon)
     ctx.fillStyle = COLOR_LINE;
     ctx.beginPath();
     ctx.moveTo(0, -arcRadius);
     ctx.lineTo(-6 * scale, -(arcRadius + 12 * scale));
     ctx.lineTo(6 * scale, -(arcRadius + 12 * scale));
-    ctx.closePath();
-    ctx.fill();
-
-    // Rotating inner pointer (inside arc, moves with roll)
-    ctx.rotate((-roll * Math.PI) / 180);
-
-    // Roll pointer (inside, points outward to arc)
-    ctx.beginPath();
-    ctx.moveTo(0, -(arcRadius));
-    ctx.lineTo(-6 * scale, -(arcRadius - 12 * scale));
-    ctx.lineTo(6 * scale, -(arcRadius - 12 * scale));
     ctx.closePath();
     ctx.fill();
 
@@ -423,18 +432,18 @@
     const scale = Math.min(Math.max(width / 440, 0.6), Math.max(height / 360, 0.6));
     const cx = width / 2;
     const cy = height / 2 + 10 * scale;
-    const arcCy = cy - 48 * scale;
-    const arcRadius = Math.max(85, Math.min(cx * 0.7, (arcCy - 36 * scale) * 0.9));
-    const pitchPxPerDeg = 6.0 * scale;
+    // Concentric arc radius measured from the aircraft & markings center (cx, cy)
+    const arcRadius = Math.max(105, Math.min(cx * 0.75, (cy - 36 * scale) * 0.96));
+    const pitchPxPerDeg = 9.6 * scale;
 
     // 1. Sky & Ground (Full Bleed)
     drawSkyAndGround(ctx, cx, cy, width, height, pitchPxPerDeg);
 
     // 2. Pitch Ladder (STRICTLY clipped so nothing renders past the arc)
-    drawPitchLadder(ctx, cx, cy, arcCy, arcRadius, scale, pitchPxPerDeg);
+    drawPitchLadder(ctx, cx, cy, arcRadius, scale, pitchPxPerDeg);
 
-    // 3. Roll Arc & Slip/Skid Brick
-    drawRollScale(ctx, cx, arcCy, arcRadius, scale);
+    // 3. Roll Arc & Sky Pointer (concentric with markings center)
+    drawRollScale(ctx, cx, cy, arcRadius, scale);
 
     // 4. Yellow Aircraft Reference Symbol
     drawAircraftSymbol(ctx, cx, cy, scale);

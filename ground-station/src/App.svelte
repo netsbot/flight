@@ -252,19 +252,8 @@
 <div class="flex flex-col h-screen w-full bg-slate-950 p-2 gap-2 select-none">
     <!-- Main instruments grid -->
     <div class="grid h-1/2 w-full grid-cols-2 gap-2">
-        <div class="min-h-0 min-w-0 relative">
+        <div class="min-h-0 min-w-0">
             <Horizon {pitch} {roll} {yaw} {speed} {altitude} />
-            <!-- Floating Throttle HUD Badge -->
-            <div class="absolute top-2 left-2 z-10 px-2.5 py-1 rounded bg-black/75 border border-slate-700 font-mono text-xs backdrop-blur flex items-center gap-2 pointer-events-none">
-                <span class="text-slate-400 font-medium">THR</span>
-                <div class="w-16 h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-700">
-                    <div
-                        class="h-full bg-linear-to-r from-cyan-400 to-emerald-400"
-                        style="width: {throttle}%"
-                    ></div>
-                </div>
-                <span class="text-cyan-400 font-bold">{Math.round(throttle)}%</span>
-            </div>
         </div>
 
         <div class="min-h-0 min-w-0">
