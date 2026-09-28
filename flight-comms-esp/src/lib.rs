@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use esp_radio::esp_now::{
     EspNowError, EspNowManager, EspNowReceiver, EspNowSender, EspNowWifiInterface, PeerInfo,
 };
-use flight_core::comms::{Command, CommsError, Receiver, Sender};
+use flight_core::comms::{CommsError, Message, Receiver, Sender};
 use postcard::{from_bytes_cobs, to_slice_cobs};
 
 pub struct BoardRx<'a> {
@@ -23,7 +23,7 @@ impl<'a> BoardRx<'a> {
 }
 
 impl<'a> Receiver for BoardRx<'a> {
-    async fn receive(&mut self) -> Result<Command, CommsError> {
+    async fn receive(&mut self) -> Result<Message, CommsError> {
         loop {
             let r = self.rx.receive_async().await;
             if r.info.dst_address != self.my_mac {
@@ -132,10 +132,10 @@ impl<'a> BoardTx<'a, PeerAdded> {
 }
 
 impl<'a> Sender for BoardTx<'a, PeerAdded> {
-    async fn send(&mut self, command: Command) -> Result<(), CommsError> {
+    async fn send(&mut self, message: Message) -> Result<(), CommsError> {
         let mut buf = [0u8; 64];
 
-        let serialized = to_slice_cobs(&command, &mut buf).map_err(CommsError::from)?;
+        let serialized = to_slice_cobs(&message, &mut buf).map_err(CommsError::from)?;
 
         self.tx
             .send_async(&self.target_mac, serialized)

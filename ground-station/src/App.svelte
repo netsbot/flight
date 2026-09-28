@@ -3,7 +3,7 @@
     import Horizon from "./lib/Horizon.svelte";
     import GpsMap from "./lib/GpsMap.svelte";
     import initWasm, { decode_packet, encode_packet } from "./lib/wasm/web_decoder";
-    import type { Command } from "./lib/types/Command";
+    import type { Message } from "./lib/types/Message";
 
     let gp = $state<Gamepad | null>(null);
     let port = $state<SerialPort | null>(null);
@@ -79,11 +79,11 @@
         }, 2500);
     }
 
-    async function sendCommand(cmd: Command) {
+    async function sendMessage(msg: Message) {
         if (!port || !port.writable) return;
         const writer = port.writable.getWriter();
         try {
-            const bytes = encode_packet(cmd);
+            const bytes = encode_packet(msg);
             await writer.write(bytes);
         } finally {
             writer.releaseLock();
@@ -148,8 +148,8 @@
                     if (byte === 0x00) {
                         if (buffer.length > 0) {
                             try {
-                                const cmd = decode_packet(new Uint8Array(buffer));
-                                handleCommand(cmd);
+                                const msg = decode_packet(new Uint8Array(buffer));
+                                handleMessage(msg);
                             } catch (e) {
                                 console.warn("Failed to decode packet:", e);
                             }
@@ -167,23 +167,21 @@
         }
     }
 
-    function handleCommand(cmd: Command) {
-        if (typeof cmd === "object") {
-            if ("Pong" in cmd) {
+    function handleMessage(msg: Message) {
+        if (typeof msg === "object") {
+            if ("Pong" in msg) {
                 isVerified = true;
                 connectionError = null;
-                firmwareVersion = cmd.Pong.version;
-                droneLinked = cmd.Pong.drone_linked;
-                droneRssi = cmd.Pong.rssi;
+                firmwareVersion = msg.Pong.version;
+                droneLinked = msg.Pong.drone_linked;
+                droneRssi = msg.Pong.rssi;
                 resetHeartbeatWatchdog();
-            } else if ("Attitude" in cmd) {
-                telemetryRoll = cmd.Attitude[0];
-                telemetryPitch = cmd.Attitude[1];
-                yaw = cmd.Attitude[2];
-            } else if ("Altitude" in cmd) {
-                altitude = cmd.Altitude;
-            } else if ("Time" in cmd) {
-                // Heartbeat timestamp
+            } else if ("Telemetry" in msg) {
+                altitude = msg.Telemetry.altitude;
+                telemetryRoll = msg.Telemetry.attitude[0];
+                telemetryPitch = msg.Telemetry.attitude[1];
+                yaw = msg.Telemetry.attitude[2];
+                coords = [msg.Telemetry.coords[0], msg.Telemetry.coords[1]];
             }
         }
     }

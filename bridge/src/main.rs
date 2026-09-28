@@ -22,7 +22,7 @@ use esp_radio::{
     esp_now::{EspNowReceiver, EspNowSender, EspNowWifiInterface, PeerInfo},
     wifi::{ControllerConfig, Protocol, Protocols, WifiController},
 };
-use flight_core::comms::Command;
+use flight_core::comms::Message;
 use panic_rtt_target as _;
 use postcard::accumulator::{CobsAccumulator, FeedResult};
 use static_cell::StaticCell;
@@ -73,7 +73,7 @@ async fn bridge_task(
 
             let mut window = &chunk[..n];
             while !window.is_empty() {
-                window = match acc.feed::<Command>(window) {
+                window = match acc.feed::<Message>(window) {
                     FeedResult::Consumed => break,
                     FeedResult::OverFull(rem) | FeedResult::DeserError(rem) => rem,
                     FeedResult::Success { data, remaining } => {
@@ -110,7 +110,7 @@ async fn heartbeat_task(
             }
         };
 
-        let hb = Command::Pong {
+        let hb = Message::Pong {
             version: 1,
             drone_linked,
             rssi,
