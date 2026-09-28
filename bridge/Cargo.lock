@@ -83,6 +83,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "bridge"
+version = "0.1.0"
+dependencies = [
+ "defmt 1.1.1",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+ "esp-alloc",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-radio",
+ "esp-rtos",
+ "flight-core",
+ "panic-rtt-target",
+ "postcard",
+ "rtt-target",
+ "static_cell",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1127,28 +1149,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360bd2cd76e0cd9032d42cf2922155cecea2685b0cfa4630c3246df030bcfd6"
 dependencies = [
  "libm",
-]
-
-[[package]]
-name = "ground-station"
-version = "0.1.0"
-dependencies = [
- "defmt 1.1.1",
- "embassy-executor",
- "embassy-futures",
- "embassy-sync 0.8.0",
- "embassy-time",
- "embedded-io-async 0.7.0",
- "esp-alloc",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-radio",
- "esp-rtos",
- "flight-core",
- "panic-rtt-target",
- "postcard",
- "rtt-target",
- "static_cell",
 ]
 
 [[package]]

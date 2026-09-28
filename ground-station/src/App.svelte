@@ -15,6 +15,7 @@
     let droneRssi = $state<number | null>(null);
     let firmwareVersion = $state<number | null>(null);
     let connectionError = $state<string | null>(null);
+    let heartbeatTimeout: number | null = null;
 
     let pollHandle: number | null = null;
     let yaw = $state(192);
@@ -66,6 +67,18 @@
         pollHandle = requestAnimationFrame(pollGamepad);
     }
 
+    function resetHeartbeatWatchdog() {
+        if (heartbeatTimeout !== null) {
+            clearTimeout(heartbeatTimeout);
+        }
+        heartbeatTimeout = window.setTimeout(() => {
+            if (isConnected) {
+                isVerified = false;
+                connectionError = "Bridge heartbeat lost (no signal from ESP32).";
+            }
+        }, 2500);
+    }
+
     async function sendCommand(cmd: Command) {
         if (!port || !port.writable) return;
         const writer = port.writable.getWriter();
@@ -89,18 +102,9 @@
             isConnected = true;
             isVerified = false;
 
-            // 2. Start reading frames
+            // 2. Start reading frames (listens for 1 Hz heartbeat from ESP32)
             readSerialLoop();
-
-            // 3. Send Ping handshake to verify ground station firmware
-            await sendCommand("Ping");
-
-            // 4. Timeout check: if no Pong arrives within 1.5s, warn user
-            setTimeout(() => {
-                if (isConnected && !isVerified) {
-                    connectionError = "Connected to ESP32, but no Pong received (check firmware or baud rate).";
-                }
-            }, 1500);
+            resetHeartbeatWatchdog();
         } catch (err: any) {
             console.error("Serial connect error:", err);
             if (err.name !== "NotFoundError") {
@@ -111,6 +115,10 @@
     }
 
     async function disconnectSerial() {
+        if (heartbeatTimeout !== null) {
+            clearTimeout(heartbeatTimeout);
+            heartbeatTimeout = null;
+        }
         isConnected = false;
         isVerified = false;
         droneLinked = false;
@@ -160,11 +168,6 @@
     }
 
     function handleCommand(cmd: Command) {
-        if (cmd === "Ping") {
-            // Reply with Pong if requested
-            return;
-        }
-
         if (typeof cmd === "object") {
             if ("Pong" in cmd) {
                 isVerified = true;
@@ -172,6 +175,7 @@
                 firmwareVersion = cmd.Pong.version;
                 droneLinked = cmd.Pong.drone_linked;
                 droneRssi = cmd.Pong.rssi;
+                resetHeartbeatWatchdog();
             } else if ("Attitude" in cmd) {
                 telemetryRoll = cmd.Attitude[0];
                 telemetryPitch = cmd.Attitude[1];
