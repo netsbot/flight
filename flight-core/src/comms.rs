@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[cfg_attr(feature = "generate-bindings", derive(ts_rs::TS))]
-#[cfg_attr(feature = "generate-bindings", ts(export, export_to = "../../bridge/src/lib/types/"))]
+#[cfg_attr(feature = "generate-bindings", ts(export, export_to = "../../ground-station/src/lib/types/"))]
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, defmt::Format)]
 pub enum Command {
     Ping,
