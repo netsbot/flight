@@ -1,7 +1,5 @@
 use core::cell::RefCell;
 
-use defmt::println;
-use embedded_hal_async::digital::Wait;
 use embedded_hal_bus::spi::RefCellDevice;
 use esp_hal::{
     Blocking,

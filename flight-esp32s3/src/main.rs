@@ -9,23 +9,20 @@
 use core::cell::Cell;
 
 use defmt::info;
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use esp_alloc::export::enumset::enum_set;
 use esp_hal::{
-    Async,
     clock::CpuClock,
     gpio::{Input, InputConfig, Level, Output, OutputConfig},
+    i2c,
+    i2c::master::I2c,
     interrupt::{Priority, software::SoftwareInterruptControl},
-    spi::{
-        Mode,
-        master::{Config, Spi},
-    },
+    spi,
     time::Rate,
     timer::timg::TimerGroup,
 };
 use esp_radio::wifi::{ControllerConfig, Protocol, Protocols, WifiController};
 use esp_rtos::embassy::InterruptExecutor;
-use flight_core::Setpoint;
+use flight_core::{PlaneState, Setpoint};
 use flight_esp32s3::{
     TARGET_MAC,
     baro::baro_task,
@@ -34,13 +31,11 @@ use flight_esp32s3::{
     profiler::Esp32Profiler,
     state::drone_state_task,
 };
-use flight_core::PlaneState;
 use nalgebra::Vector3;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
 
 static INTERRUPT_EXECUTOR: StaticCell<InterruptExecutor<1>> = StaticCell::new();
-static SHARED_SPI: StaticCell<Mutex<NoopRawMutex, Spi<'static, Async>>> = StaticCell::new();
 static WIFI_CONTROLLER: StaticCell<WifiController> = StaticCell::new();
 static SETPOINT: StaticCell<Cell<Setpoint>> = StaticCell::new();
 static STATE: StaticCell<Cell<PlaneState>> = StaticCell::new();
@@ -75,28 +70,22 @@ async fn main(spawner: embassy_executor::Spawner) {
     let imu_executor = INTERRUPT_EXECUTOR.init(InterruptExecutor::new(sw_ints.software_interrupt1));
     let imu_spawner = imu_executor.start(Priority::Priority2);
 
-    let spi_config = Config::default()
-        .with_frequency(Rate::from_mhz(1))
-        .with_mode(Mode::_0);
-
-    let imu_spi = Spi::new(peripherals.SPI2, spi_config)
+    let imu_spi = spi::master::Spi::new(peripherals.SPI2, spi::master::Config::default())
         .expect("Failed to initialize SPI")
-        .with_sck(peripherals.GPIO14)
-        .with_mosi(peripherals.GPIO13)
-        .with_miso(peripherals.GPIO12);
+        .with_sck(peripherals.GPIO41)
+        .with_mosi(peripherals.GPIO40)
+        .with_miso(peripherals.GPIO39);
 
     let cs_imu = Output::new(peripherals.GPIO10, Level::High, OutputConfig::default());
 
-    let shared_spi = SHARED_SPI.init(Mutex::new(
-        Spi::new(peripherals.SPI3, spi_config)
-            .expect("Failed to initialize SPI")
-            .with_sck(peripherals.GPIO4)
-            .with_mosi(peripherals.GPIO5)
-            .with_miso(peripherals.GPIO7)
-            .into_async(),
-    ));
-
-    let cs_baro = Output::new(peripherals.GPIO6, Level::High, OutputConfig::default());
+    let baro_i2c = I2c::new(
+        peripherals.I2C0,
+        i2c::master::Config::default().with_frequency(Rate::from_khz(3400)),
+    )
+    .unwrap()
+    .with_scl(peripherals.GPIO14)
+    .with_sda(peripherals.GPIO13)
+    .into_async();
 
     let wifi_controller = {
         let controller = WIFI_CONTROLLER
@@ -124,7 +113,7 @@ async fn main(spawner: embassy_executor::Spawner) {
 
     imu_spawner.spawn(interrupt_main(imu_spi, cs_imu, mpu_int).unwrap());
     spawner.spawn(drone_state_task(state).unwrap());
-    spawner.spawn(baro_task(shared_spi, cs_baro).unwrap());
+    spawner.spawn(baro_task(baro_i2c).unwrap());
     spawner.spawn(comms_rx_task(rx, setpoint).unwrap());
     spawner.spawn(comms_tx_task(tx, state).unwrap());
 }
