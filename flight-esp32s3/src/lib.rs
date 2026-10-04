@@ -18,6 +18,7 @@ static THROTTLE: AtomicI32 = AtomicI32::new(0);
 static IMU_DATA_CHANNEL: Channel<CriticalSectionRawMutex, AccumulatedImu, 8> = Channel::new();
 static BARO_CHANNEL: Channel<CriticalSectionRawMutex, f32, 4> = Channel::new();
 static STATE_WATCH: Watch<CriticalSectionRawMutex, DroneState, 2> = Watch::new();
+pub static TARGET_MAC: [u8; 6] = [172, 39, 110, 170, 188, 84];
 
 #[derive(Copy, Clone)]
 pub struct CycleInstant(u32);

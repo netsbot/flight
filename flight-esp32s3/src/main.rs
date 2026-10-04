@@ -23,10 +23,10 @@ use esp_hal::{
 };
 use esp_radio::wifi::{ControllerConfig, Protocol, Protocols, WifiController};
 use esp_rtos::embassy::InterruptExecutor;
-use flight_core::comms::Receiver;
 use flight_esp32s3::{
+    TARGET_MAC,
     baro::baro_task,
-    comms::comms_rx_task,
+    comms::{BoardComms, comms_rx_task},
     interrupt_tasks::interrupt_main,
     profiler::Esp32Profiler,
     state::{drone_state_task, telemetry_task},
@@ -100,6 +100,10 @@ async fn main(spawner: embassy_executor::Spawner) {
         controller
     };
 
+    let (rx, _tx, _manager) = BoardComms::new(wifi_controller.esp_now(), TARGET_MAC, 10)
+        .unwrap()
+        .split();
+
     critical_section::with(|_cs| unsafe {
         embedded_profiling::set_profiler(&Esp32Profiler).unwrap();
     });
@@ -108,5 +112,5 @@ async fn main(spawner: embassy_executor::Spawner) {
     spawner.spawn(drone_state_task().unwrap());
     spawner.spawn(telemetry_task().unwrap());
     spawner.spawn(baro_task(shared_spi, cs_baro).unwrap());
-    spawner.spawn(comms_rx_task(wifi_controller.esp_now()).unwrap());
+    spawner.spawn(comms_rx_task(rx).unwrap());
 }

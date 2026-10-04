@@ -60,15 +60,8 @@ pub async fn telemetry_task() {
 
     loop {
         ticker.next().await;
-        if let Some(state) = state_rx.try_get() {
-            println!(
-                "Roll={}, Pitch={}, Yaw={} | Alt={} m, Vel={} m/s",
-                state.attitude.x,
-                state.attitude.y,
-                state.attitude.z,
-                state.altitude,
-                state.velocity
-            );
-        }
+        let Some(_state) = state_rx.try_get() else {
+            continue;
+        };
     }
 }

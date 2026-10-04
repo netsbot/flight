@@ -1,23 +1,47 @@
-use core::marker::PhantomData;
-
-use esp_radio::esp_now::{
-    EspNowError, EspNowManager, EspNowReceiver, EspNowSender, EspNowWifiInterface, PeerInfo,
-};
+use esp_hal::efuse;
+use esp_radio::esp_now::{EspNow, EspNowError, EspNowManager, EspNowReceiver, EspNowSender, EspNowWifiInterface, PeerInfo};
 use flight_core::comms::{CommsError, Message, Receiver, Sender};
 use postcard::{from_bytes_cobs, to_slice_cobs};
+
+pub struct BoardComms<'a> {
+    rx: BoardRx<'a>,
+    tx: BoardTx<'a>,
+    manager: EspNowManager<'a>,
+}
+
+impl<'a> BoardComms<'a> {
+    /// Atomic setup: sets channel and registers peer once
+    pub fn new(
+        esp_now: EspNow<'a>,
+        target_mac: [u8; 6],
+        channel: u8,
+    ) -> Result<Self, EspNowError> {
+        let (manager, tx, rx) = esp_now.split();
+        manager.set_channel(channel)?;
+        manager.add_peer(PeerInfo {
+            peer_address: target_mac,
+            lmk: None,
+            channel: Some(channel),
+            encrypt: false,
+            interface: EspNowWifiInterface::Station,
+        })?;
+
+        let my_mac: [u8; 6] = efuse::base_mac_address().as_bytes().try_into().unwrap();
+        Ok(Self {
+            rx: BoardRx { rx, my_mac },
+            tx: BoardTx { tx, target_mac },
+            manager
+        })
+    }
+
+    pub fn split(self) -> (BoardRx<'a>, BoardTx<'a>, EspNowManager<'a>) {
+        (self.rx, self.tx, self.manager)
+    }
+}
 
 pub struct BoardRx<'a> {
     rx: EspNowReceiver<'a>,
     my_mac: [u8; 6],
-}
-
-impl<'a> BoardRx<'a> {
-    pub fn new(rx: EspNowReceiver<'a>, my_addr: [u8; 6]) -> Self {
-        Self {
-            rx,
-            my_mac: my_addr,
-        }
-    }
 }
 
 impl<'a> Receiver for BoardRx<'a> {
@@ -39,96 +63,17 @@ impl<'a> Receiver for BoardRx<'a> {
                 continue;
             };
 
-            esp_println::println!("{}", r.info.rx_control.rssi);
-
             return Ok(command);
         }
     }
 }
 
-/// Typestate marker: Peer has not yet been registered.
-pub struct Unconfigured;
-
-/// Typestate marker: Peer is registered and ready for transmission.
-pub struct PeerAdded;
-
-pub struct BoardTx<'a, State = Unconfigured> {
+pub struct BoardTx<'a> {
     tx: EspNowSender<'a>,
     target_mac: [u8; 6],
-    _state: PhantomData<State>,
 }
 
-impl<'a> BoardTx<'a, Unconfigured> {
-    /// Create an unconfigured `BoardTx`. Peer must be added via `.add_peer(...)` before sending.
-    pub fn new(tx: EspNowSender<'a>, target_mac: [u8; 6]) -> Self {
-        Self {
-            tx,
-            target_mac,
-            _state: PhantomData,
-        }
-    }
-
-    /// Registers the target peer in `EspNowManager` and transitions into `BoardTx<PeerAdded>`.
-    pub fn add_peer(
-        self,
-        manager: &EspNowManager<'_>,
-        channel: Option<u8>,
-    ) -> Result<BoardTx<'a, PeerAdded>, EspNowError> {
-        manager.add_peer(PeerInfo {
-            peer_address: self.target_mac,
-            lmk: None,
-            channel,
-            encrypt: false,
-            interface: EspNowWifiInterface::Station,
-        })?;
-
-        Ok(BoardTx {
-            tx: self.tx,
-            target_mac: self.target_mac,
-            _state: PhantomData,
-        })
-    }
-}
-
-impl<'a> BoardTx<'a, PeerAdded> {
-    /// Directly construct a `BoardTx` and register the peer in one step.
-    pub fn new_with_peer(
-        tx: EspNowSender<'a>,
-        manager: &EspNowManager<'_>,
-        target_mac: [u8; 6],
-        channel: Option<u8>,
-    ) -> Result<Self, EspNowError> {
-        BoardTx::new(tx, target_mac).add_peer(manager, channel)
-    }
-
-    /// Construct `BoardTx` assuming the peer was ALREADY added beforehand.
-    pub fn from_existing_peer(
-        tx: EspNowSender<'a>,
-        manager: &EspNowManager<'_>,
-        target_mac: [u8; 6],
-    ) -> Result<Self, CommsError> {
-        if !manager.peer_exists(&target_mac) {
-            return Err(CommsError::NotConnected);
-        }
-
-        Ok(Self {
-            tx,
-            target_mac,
-            _state: PhantomData,
-        })
-    }
-
-    /// Unchecked construction if you have already added the peer manually.
-    pub unsafe fn new_unchecked(tx: EspNowSender<'a>, target_mac: [u8; 6]) -> Self {
-        Self {
-            tx,
-            target_mac,
-            _state: PhantomData,
-        }
-    }
-}
-
-impl<'a> Sender for BoardTx<'a, PeerAdded> {
+impl<'a> Sender for BoardTx<'a> {
     async fn send(&mut self, message: Message) -> Result<(), CommsError> {
         let mut buf = [0u8; 64];
 
@@ -144,14 +89,9 @@ impl<'a> Sender for BoardTx<'a, PeerAdded> {
 }
 
 #[embassy_executor::task]
-pub async fn comms_rx_task(esp_now: esp_radio::esp_now::EspNow<'static>) {
-    let (manager, _tx, rx) = esp_now.split();
-    manager.set_channel(10).unwrap();
-    let target_mac = [172, 39, 110, 170, 188, 84];
-    let mut board_rx = BoardRx::new(rx, target_mac);
-
+pub async fn comms_rx_task(mut rx: BoardRx<'static>) {
     loop {
-        let data = board_rx.receive().await.unwrap();
+        let data = rx.receive().await.unwrap();
         esp_println::println!("{:?}", data);
     }
 }
