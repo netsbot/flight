@@ -110,9 +110,9 @@
                 throttleChanged = true;
             }
 
-            // Stream RollRate command over serial to the drone
+            // Stream Rates command over serial to the drone
             if (port && port.writable) {
-                sendMessage({ RollRate: [rollRate, pitchRate, 0] }).catch(() => {});
+                sendMessage({ Rates: [rollRate, pitchRate, 0] }).catch(() => {});
                 if (throttleChanged) {
                     sendMessage({ Throttle: Math.round(throttle) }).catch(() => {});
                 }

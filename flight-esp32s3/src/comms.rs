@@ -106,8 +106,8 @@ pub async fn comms_rx_task(mut board_rx: BoardRx<'static>) {
         };
 
         match msg {
-            Message::RollRate(data) => {
-                setpoint_sender.send(Setpoint::RollRate(<Vector3<f32>>::from(data)))
+            Message::Rates(data) => {
+                setpoint_sender.send(Setpoint::Rates(<Vector3<f32>>::from(data)))
             }
             Message::Throttle(throttle) => THROTTLE.store(throttle, Ordering::Relaxed),
             Message::Telemetry { .. } => {}

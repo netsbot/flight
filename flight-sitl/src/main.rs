@@ -70,13 +70,13 @@ fn main() {
             throttle = throttle.clamp(0.0, 1.0);
         }
 
-        let elevon_outputs = mix_elevons(throttle, elevator, aileron);
+        let elevon_outputs = mix_elevons(elevator, aileron, 1.0);
 
         if let Err(e) = fg.write_controls(
             elevon_outputs.left_elevon as f64,
             elevon_outputs.right_elevon as f64,
             rudder as f64,
-            elevon_outputs.throttle as f64,
+            throttle as f64,
         ) {
             eprintln!("Failed to write controls to FlightGear: {e}");
         }
@@ -121,7 +121,7 @@ fn main() {
                     elevon_outputs.left_elevon,
                     elevon_outputs.right_elevon,
                     rudder,
-                    elevon_outputs.throttle,
+                    throttle,
                     alt
                 );
             }

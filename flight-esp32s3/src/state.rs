@@ -1,6 +1,4 @@
-use defmt::println;
-use embassy_time::{Duration, Ticker};
-use flight_core::{DroneState, altitude_estimator, fusion, fusion::AhrsConfig, imu::ImuFrame};
+use flight_core::{PlaneState, altitude_estimator, fusion, fusion::AhrsConfig, imu::ImuFrame};
 
 use crate::{BARO_CHANNEL, IMU_DATA_CHANNEL, STATE_WATCH};
 
@@ -38,12 +36,9 @@ pub async fn drone_state_task() {
             altitude_estimator.predict(accel_z, accum_data.dt);
 
             let euler_deg = ahrs.euler_angles().map(|v| v.to_degrees());
-            state_tx.send(DroneState {
+            state_tx.send(PlaneState {
                 attitude: euler_deg,
                 altitude: altitude_estimator.altitude(),
-                velocity: altitude_estimator.velocity(),
-                accel_bias: altitude_estimator.accel_bias(),
-                accel_z,
             });
         }
 

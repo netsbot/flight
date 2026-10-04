@@ -10,7 +10,7 @@ pub enum Message {
         drone_linked: bool,
         rssi: Option<i8>,
     },
-    RollRate([f32; 3]),
+    Rates([f32; 3]),
     Throttle(u32),
     Telemetry {
         altitude: f32,
