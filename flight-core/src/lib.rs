@@ -28,11 +28,10 @@ pub struct MotorOutputs {
     pub back_right: f32,
 }
 
-pub struct ControllerInput {
-    pub throttle: f32,
-    pub roll: f32,
-    pub pitch: f32,
-    pub yaw: f32,
+#[derive(Debug, Copy, Clone)]
+pub enum Setpoint {
+    RollRate(Vector3<f32>),
+    Attitude(Vector3<f32>),
 }
 
 pub struct ControllerBundle {

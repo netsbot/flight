@@ -26,10 +26,10 @@ use esp_rtos::embassy::InterruptExecutor;
 use flight_esp32s3::{
     TARGET_MAC,
     baro::baro_task,
-    comms::{BoardComms, comms_rx_task},
+    comms::{BoardComms, comms_rx_task, comms_tx_task},
     interrupt_tasks::interrupt_main,
     profiler::Esp32Profiler,
-    state::{drone_state_task, telemetry_task},
+    state::drone_state_task,
 };
 use panic_rtt_target as _;
 use static_cell::StaticCell;
@@ -100,17 +100,17 @@ async fn main(spawner: embassy_executor::Spawner) {
         controller
     };
 
-    let (rx, _tx, _manager) = BoardComms::new(wifi_controller.esp_now(), TARGET_MAC, 10)
-        .unwrap()
-        .split();
-
     critical_section::with(|_cs| unsafe {
         embedded_profiling::set_profiler(&Esp32Profiler).unwrap();
     });
 
+    let (rx, tx, _manager) = BoardComms::new(wifi_controller.esp_now(), TARGET_MAC, 10)
+        .unwrap()
+        .split();
+
     imu_spawner.spawn(interrupt_main(imu_spi, cs_imu, mpu_int).unwrap());
     spawner.spawn(drone_state_task().unwrap());
-    spawner.spawn(telemetry_task().unwrap());
     spawner.spawn(baro_task(shared_spi, cs_baro).unwrap());
     spawner.spawn(comms_rx_task(rx).unwrap());
+    spawner.spawn(comms_tx_task(tx).unwrap());
 }

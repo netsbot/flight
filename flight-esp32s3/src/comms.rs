@@ -1,7 +1,18 @@
+use core::sync::atomic::Ordering;
+
+use embassy_time::{Duration, Ticker};
 use esp_hal::efuse;
-use esp_radio::esp_now::{EspNow, EspNowError, EspNowManager, EspNowReceiver, EspNowSender, EspNowWifiInterface, PeerInfo};
-use flight_core::comms::{CommsError, Message, Receiver, Sender};
+use esp_radio::esp_now::{
+    EspNow, EspNowError, EspNowManager, EspNowReceiver, EspNowSender, EspNowWifiInterface, PeerInfo,
+};
+use flight_core::{
+    Setpoint,
+    comms::{CommsError, Message, Receiver, Sender},
+};
+use nalgebra::Vector3;
 use postcard::{from_bytes_cobs, to_slice_cobs};
+
+use crate::{SET_POINT_CHANNEL, STATE_WATCH, THROTTLE};
 
 pub struct BoardComms<'a> {
     rx: BoardRx<'a>,
@@ -11,11 +22,7 @@ pub struct BoardComms<'a> {
 
 impl<'a> BoardComms<'a> {
     /// Atomic setup: sets channel and registers peer once
-    pub fn new(
-        esp_now: EspNow<'a>,
-        target_mac: [u8; 6],
-        channel: u8,
-    ) -> Result<Self, EspNowError> {
+    pub fn new(esp_now: EspNow<'a>, target_mac: [u8; 6], channel: u8) -> Result<Self, EspNowError> {
         let (manager, tx, rx) = esp_now.split();
         manager.set_channel(channel)?;
         manager.add_peer(PeerInfo {
@@ -30,7 +37,7 @@ impl<'a> BoardComms<'a> {
         Ok(Self {
             rx: BoardRx { rx, my_mac },
             tx: BoardTx { tx, target_mac },
-            manager
+            manager,
         })
     }
 
@@ -89,9 +96,42 @@ impl<'a> Sender for BoardTx<'a> {
 }
 
 #[embassy_executor::task]
-pub async fn comms_rx_task(mut rx: BoardRx<'static>) {
+pub async fn comms_rx_task(mut board_rx: BoardRx<'static>) {
+    let setpoint_sender = SET_POINT_CHANNEL.sender();
+
     loop {
-        let data = rx.receive().await.unwrap();
-        esp_println::println!("{:?}", data);
+        // TODO: go to home when out of range
+        let Ok(msg) = board_rx.receive().await else {
+            continue;
+        };
+
+        match msg {
+            Message::RollRate(data) => {
+                setpoint_sender.send(Setpoint::RollRate(<Vector3<f32>>::from(data)))
+            }
+            Message::Throttle(throttle) => THROTTLE.store(throttle, Ordering::Relaxed),
+            Message::Telemetry { .. } => {}
+            Message::Pong { .. } => {}
+        }
+    }
+}
+
+#[embassy_executor::task]
+pub async fn comms_tx_task(mut board_tx: BoardTx<'static>) {
+    let mut telemetry_ticker = Ticker::every(Duration::from_hz(25));
+    let mut state_receiver = STATE_WATCH.receiver().unwrap();
+    loop {
+        let state = state_receiver.get().await;
+
+        // TODO: go to home when out of range
+        let _ = board_tx
+            .send(Message::Telemetry {
+                altitude: state.altitude,
+                attitude: <[f32; 3]>::from(state.attitude),
+                coords: [0.0, 0.0],
+            })
+            .await;
+
+        telemetry_ticker.next().await
     }
 }

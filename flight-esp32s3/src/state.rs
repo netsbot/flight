@@ -52,16 +52,3 @@ pub async fn drone_state_task() {
         }
     }
 }
-
-#[embassy_executor::task]
-pub async fn telemetry_task() {
-    let mut ticker = Ticker::every(Duration::from_hz(10));
-    let mut state_rx = STATE_WATCH.receiver().unwrap();
-
-    loop {
-        ticker.next().await;
-        let Some(_state) = state_rx.try_get() else {
-            continue;
-        };
-    }
-}

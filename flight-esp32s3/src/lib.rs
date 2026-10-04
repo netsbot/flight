@@ -1,9 +1,9 @@
 #![no_std]
 
-use core::{sync::atomic::AtomicI32, time::Duration};
-
+use core::sync::atomic::AtomicU32;
+use core::time::Duration;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, watch::Watch};
-use flight_core::{DroneState, imu::AccumulatedImu};
+use flight_core::{imu::AccumulatedImu, DroneState, Setpoint};
 
 pub mod baro;
 pub mod comms;
@@ -14,10 +14,11 @@ pub mod profiler;
 pub mod servos;
 pub mod state;
 
-static THROTTLE: AtomicI32 = AtomicI32::new(0);
+static THROTTLE: AtomicU32 = AtomicU32::new(0);
 static IMU_DATA_CHANNEL: Channel<CriticalSectionRawMutex, AccumulatedImu, 8> = Channel::new();
 static BARO_CHANNEL: Channel<CriticalSectionRawMutex, f32, 4> = Channel::new();
-static STATE_WATCH: Watch<CriticalSectionRawMutex, DroneState, 2> = Watch::new();
+static STATE_WATCH: Watch<CriticalSectionRawMutex, DroneState, 3> = Watch::new();
+static SET_POINT_CHANNEL: Watch<CriticalSectionRawMutex, Setpoint, 1> = Watch::new();
 pub static TARGET_MAC: [u8; 6] = [172, 39, 110, 170, 188, 84];
 
 #[derive(Copy, Clone)]
