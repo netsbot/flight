@@ -1,6 +1,15 @@
-use esp_hal::delay::Delay;
-use flight_core::imu::ImuFrame;
+use embedded_hal_bus::spi::ExclusiveDevice;
+use esp_hal::{
+    Blocking,
+    delay::Delay,
+    gpio::{Input, Output},
+    spi::
+    master::Spi,
+};
+use flight_core::imu::{AccumulatedImu, ImuFrame};
 use mpu9250::{AccelDataRate, Dlpf, Imu, InterruptConfig, InterruptEnable, Mpu9250, MpuConfig};
+
+use crate::{CycleInstant, IMU_DATA_CHANNEL};
 
 pub struct BoardImu<SPI: embedded_hal::spi::SpiDevice> {
     pub inner: Mpu9250<SPI, Imu>,
@@ -38,6 +47,41 @@ impl<SPI: embedded_hal::spi::SpiDevice> BoardImu<SPI> {
             accel_ms2: nalgebra::Vector3::new(data.accel[0], data.accel[1], data.accel[2]),
             gyro_rad_s: nalgebra::Vector3::new(data.gyro[0], data.gyro[1], data.gyro[2]),
             magnetometer: None,
+        }
+    }
+}
+
+#[embassy_executor::task]
+pub async fn imu_task(
+    spi: Spi<'static, Blocking>,
+    cs_imu: Output<'static>,
+    mut mpu_int: Input<'static>,
+) {
+    let mut last_imu_read = CycleInstant::now();
+    let mut accum = AccumulatedImu::ZERO;
+    let spi_device = ExclusiveDevice::new(spi, cs_imu, Delay::new()).unwrap();
+    let mut imu = BoardImu::new(spi_device);
+
+    loop {
+        // Await data-ready hardware interrupt without startup edge deadlock
+        if mpu_int.is_low() {
+            mpu_int.wait_for_high().await;
+        }
+
+        let data = imu.read();
+
+        let dt = last_imu_read.elapsed_secs_and_reset();
+
+        // 1. Accumulate pre-integration delta angles and delta velocities
+        accum.delta_angle += data.gyro_rad_s * dt;
+        accum.delta_velocity += data.accel_ms2 * dt;
+        accum.dt += dt;
+        accum.samples += 1;
+
+        // Send snapshot every N samples or when enough time elapsed (~5ms / 200Hz)
+        if accum.samples >= 5 || accum.dt >= 0.005 {
+            let _ = IMU_DATA_CHANNEL.try_send(accum);
+            accum = AccumulatedImu::ZERO;
         }
     }
 }

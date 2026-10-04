@@ -16,7 +16,7 @@ use esp_hal::{
     i2c,
     i2c::master::I2c,
     interrupt::{Priority, software::SoftwareInterruptControl},
-    spi,
+    spi::master::{Config, Spi},
     time::Rate,
     timer::timg::TimerGroup,
 };
@@ -27,7 +27,7 @@ use flight_esp32s3::{
     TARGET_MAC,
     baro::baro_task,
     comms::{BoardComms, comms_rx_task, comms_tx_task},
-    interrupt_tasks::interrupt_main,
+    imu::imu_task,
     profiler::Esp32Profiler,
     state::drone_state_task,
 };
@@ -70,11 +70,14 @@ async fn main(spawner: embassy_executor::Spawner) {
     let imu_executor = INTERRUPT_EXECUTOR.init(InterruptExecutor::new(sw_ints.software_interrupt1));
     let imu_spawner = imu_executor.start(Priority::Priority2);
 
-    let imu_spi = spi::master::Spi::new(peripherals.SPI2, spi::master::Config::default())
-        .expect("Failed to initialize SPI")
-        .with_sck(peripherals.GPIO41)
-        .with_mosi(peripherals.GPIO40)
-        .with_miso(peripherals.GPIO39);
+    let imu_spi = Spi::new(
+        peripherals.SPI2,
+        Config::default().with_frequency(Rate::from_mhz(20)),
+    )
+    .expect("Failed to initialize SPI")
+    .with_sck(peripherals.GPIO41)
+    .with_mosi(peripherals.GPIO40)
+    .with_miso(peripherals.GPIO39);
 
     let cs_imu = Output::new(peripherals.GPIO10, Level::High, OutputConfig::default());
 
@@ -111,7 +114,7 @@ async fn main(spawner: embassy_executor::Spawner) {
         altitude: 0.0,
     }));
 
-    imu_spawner.spawn(interrupt_main(imu_spi, cs_imu, mpu_int).unwrap());
+    imu_spawner.spawn(imu_task(imu_spi, cs_imu, mpu_int).unwrap());
     spawner.spawn(drone_state_task(state).unwrap());
     spawner.spawn(baro_task(baro_i2c).unwrap());
     spawner.spawn(comms_rx_task(rx, setpoint).unwrap());
