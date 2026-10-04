@@ -1,4 +1,4 @@
-use core::sync::atomic::Ordering;
+use core::{cell::Cell, sync::atomic::Ordering};
 
 use embassy_time::{Duration, Ticker};
 use esp_hal::efuse;
@@ -6,13 +6,12 @@ use esp_radio::esp_now::{
     EspNow, EspNowError, EspNowManager, EspNowReceiver, EspNowSender, EspNowWifiInterface, PeerInfo,
 };
 use flight_core::{
-    Setpoint,
+    PlaneState, Setpoint,
     comms::{CommsError, Message, Receiver, Sender},
 };
-use nalgebra::Vector3;
 use postcard::{from_bytes_cobs, to_slice_cobs};
 
-use crate::{SET_POINT_CHANNEL, STATE_WATCH, THROTTLE};
+use crate::THROTTLE;
 
 pub struct BoardComms<'a> {
     rx: BoardRx<'a>,
@@ -96,9 +95,7 @@ impl<'a> Sender for BoardTx<'a> {
 }
 
 #[embassy_executor::task]
-pub async fn comms_rx_task(mut board_rx: BoardRx<'static>) {
-    let setpoint_sender = SET_POINT_CHANNEL.sender();
-
+pub async fn comms_rx_task(mut board_rx: BoardRx<'static>, setpoint: &'static Cell<Setpoint>) {
     loop {
         // TODO: go to home when out of range
         let Ok(msg) = board_rx.receive().await else {
@@ -106,9 +103,7 @@ pub async fn comms_rx_task(mut board_rx: BoardRx<'static>) {
         };
 
         match msg {
-            Message::Rates(data) => {
-                setpoint_sender.send(Setpoint::Rates(<Vector3<f32>>::from(data)))
-            }
+            Message::Rates(data) => setpoint.set(Setpoint::Rates(data.into())),
             Message::Throttle(throttle) => THROTTLE.store(throttle, Ordering::Relaxed),
             Message::Telemetry { .. } => {}
             Message::Pong { .. } => {}
@@ -117,17 +112,16 @@ pub async fn comms_rx_task(mut board_rx: BoardRx<'static>) {
 }
 
 #[embassy_executor::task]
-pub async fn comms_tx_task(mut board_tx: BoardTx<'static>) {
+pub async fn comms_tx_task(mut board_tx: BoardTx<'static>, state: &'static Cell<PlaneState>) {
     let mut telemetry_ticker = Ticker::every(Duration::from_hz(25));
-    let mut state_receiver = STATE_WATCH.receiver().unwrap();
     loop {
-        let state = state_receiver.get().await;
+        let current = state.get();
 
         // TODO: go to home when out of range
         let _ = board_tx
             .send(Message::Telemetry {
-                altitude: state.altitude,
-                attitude: <[f32; 3]>::from(state.attitude),
+                altitude: current.altitude,
+                attitude: <[f32; 3]>::from(current.attitude),
                 coords: [0.0, 0.0],
             })
             .await;

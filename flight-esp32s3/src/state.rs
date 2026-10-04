@@ -1,9 +1,10 @@
 use flight_core::{PlaneState, altitude_estimator, fusion, fusion::AhrsConfig, imu::ImuFrame};
+use core::cell::Cell;
 
-use crate::{BARO_CHANNEL, IMU_DATA_CHANNEL, STATE_WATCH};
+use crate::{BARO_CHANNEL, IMU_DATA_CHANNEL};
 
 #[embassy_executor::task]
-pub async fn drone_state_task() {
+pub async fn drone_state_task(state: &'static Cell<PlaneState>) {
     let mut ahrs = fusion::Ahrs::new(
         AhrsConfig::default()
             .with_gain(1.5)
@@ -14,7 +15,6 @@ pub async fn drone_state_task() {
     let mut altitude_estimator =
         altitude_estimator::AltitudeEstimator::new(0.0, 0.15, 0.001, 0.16);
 
-    let state_tx = STATE_WATCH.sender();
     let baro_rx = BARO_CHANNEL.receiver();
 
     loop {
@@ -36,7 +36,7 @@ pub async fn drone_state_task() {
             altitude_estimator.predict(accel_z, accum_data.dt);
 
             let euler_deg = ahrs.euler_angles().map(|v| v.to_degrees());
-            state_tx.send(PlaneState {
+            state.set(PlaneState {
                 attitude: euler_deg,
                 altitude: altitude_estimator.altitude(),
             });

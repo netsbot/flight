@@ -6,6 +6,8 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+use core::cell::Cell;
+
 use defmt::info;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use esp_alloc::export::enumset::enum_set;
@@ -23,6 +25,7 @@ use esp_hal::{
 };
 use esp_radio::wifi::{ControllerConfig, Protocol, Protocols, WifiController};
 use esp_rtos::embassy::InterruptExecutor;
+use flight_core::Setpoint;
 use flight_esp32s3::{
     TARGET_MAC,
     baro::baro_task,
@@ -31,12 +34,16 @@ use flight_esp32s3::{
     profiler::Esp32Profiler,
     state::drone_state_task,
 };
+use flight_core::PlaneState;
+use nalgebra::Vector3;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
 
 static INTERRUPT_EXECUTOR: StaticCell<InterruptExecutor<1>> = StaticCell::new();
 static SHARED_SPI: StaticCell<Mutex<NoopRawMutex, Spi<'static, Async>>> = StaticCell::new();
 static WIFI_CONTROLLER: StaticCell<WifiController> = StaticCell::new();
+static SETPOINT: StaticCell<Cell<Setpoint>> = StaticCell::new();
+static STATE: StaticCell<Cell<PlaneState>> = StaticCell::new();
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -108,9 +115,16 @@ async fn main(spawner: embassy_executor::Spawner) {
         .unwrap()
         .split();
 
+    let setpoint: &'static Cell<Setpoint> =
+        SETPOINT.init(Cell::new(Setpoint::Rates(Vector3::zeros())));
+    let state: &'static Cell<PlaneState> = STATE.init(Cell::new(PlaneState {
+        attitude: Vector3::zeros(),
+        altitude: 0.0,
+    }));
+
     imu_spawner.spawn(interrupt_main(imu_spi, cs_imu, mpu_int).unwrap());
-    spawner.spawn(drone_state_task().unwrap());
+    spawner.spawn(drone_state_task(state).unwrap());
     spawner.spawn(baro_task(shared_spi, cs_baro).unwrap());
-    spawner.spawn(comms_rx_task(rx).unwrap());
-    spawner.spawn(comms_tx_task(tx).unwrap());
+    spawner.spawn(comms_rx_task(rx, setpoint).unwrap());
+    spawner.spawn(comms_tx_task(tx, state).unwrap());
 }
